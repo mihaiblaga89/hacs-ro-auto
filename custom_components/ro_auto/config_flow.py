@@ -8,7 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_NAME, CONF_VIN
+from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -30,6 +30,7 @@ from .const import (
     CONF_MAKE,
     CONF_MODEL,
     CONF_REGISTRATION_NUMBER,
+    CONF_VIN,
     CONF_YEAR,
     DEFAULT_NAME,
     DOMAIN,

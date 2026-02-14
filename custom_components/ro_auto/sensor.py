@@ -6,13 +6,20 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_VIN
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_YEAR, DOMAIN
+from .const import (
+    CONF_MAKE,
+    CONF_MODEL,
+    CONF_REGISTRATION_NUMBER,
+    CONF_VIN,
+    CONF_YEAR,
+    DOMAIN,
+)
 from .coordinator import RoAutoCoordinator
 
 

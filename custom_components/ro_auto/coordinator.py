@@ -8,13 +8,13 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, CONF_VIN
+from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import ErovinietaApiClient
-from .const import CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_YEAR
+from .const import CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_VIN, CONF_YEAR
 from .helpers import get_cars_for_entry
 
 _LOGGER = logging.getLogger(__name__)
