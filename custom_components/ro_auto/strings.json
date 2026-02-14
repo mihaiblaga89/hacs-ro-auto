@@ -7,7 +7,7 @@
         "description": "Add the first car and optionally continue with more.",
         "data": {
           "fleet_name": "Fleet name",
-          "name": "Car name",
+          "name": "Vehicle name",
           "make": "Make",
           "model": "Model",
           "year": "Year",
@@ -19,7 +19,7 @@
       "add_car": {
         "title": "Add another car",
         "data": {
-          "name": "Car name",
+          "name": "Vehicle name",
           "make": "Make",
           "model": "Model",
           "year": "Year",
@@ -36,12 +36,16 @@
   "options": {
     "step": {
       "init": {
-        "title": "Manage cars"
+        "title": "Manage cars",
+        "menu_options": {
+          "add_car": "Add a car",
+          "remove_car": "Remove a car"
+        }
       },
       "add_car": {
         "title": "Add car",
         "data": {
-          "name": "Car name",
+          "name": "Vehicle name",
           "make": "Make",
           "model": "Model",
           "year": "Year",
@@ -55,10 +59,6 @@
           "action": "Car"
         }
       }
-    },
-    "menu_options": {
-      "add_car": "Add a car",
-      "remove_car": "Remove a car"
     },
     "error": {
       "duplicate_car": "This VIN already exists in the fleet."
