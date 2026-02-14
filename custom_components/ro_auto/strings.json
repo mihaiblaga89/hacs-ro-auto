@@ -1,0 +1,67 @@
+{
+  "title": "RO Auto",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add RO Auto fleet",
+        "description": "Add the first car and optionally continue with more.",
+        "data": {
+          "fleet_name": "Fleet name",
+          "name": "Car name",
+          "make": "Make",
+          "model": "Model",
+          "year": "Year",
+          "vin": "VIN",
+          "registrationNumber": "Registration number",
+          "add_another": "Add another car"
+        }
+      },
+      "add_car": {
+        "title": "Add another car",
+        "data": {
+          "name": "Car name",
+          "make": "Make",
+          "model": "Model",
+          "year": "Year",
+          "vin": "VIN",
+          "registrationNumber": "Registration number",
+          "add_another": "Add another car"
+        }
+      }
+    },
+    "error": {
+      "duplicate_car": "This VIN already exists in the fleet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage cars"
+      },
+      "add_car": {
+        "title": "Add car",
+        "data": {
+          "name": "Car name",
+          "make": "Make",
+          "model": "Model",
+          "year": "Year",
+          "vin": "VIN",
+          "registrationNumber": "Registration number"
+        }
+      },
+      "remove_car": {
+        "title": "Remove car",
+        "data": {
+          "action": "Car"
+        }
+      }
+    },
+    "menu_options": {
+      "add_car": "Add a car",
+      "remove_car": "Remove a car"
+    },
+    "error": {
+      "duplicate_car": "This VIN already exists in the fleet."
+    }
+  }
+}
