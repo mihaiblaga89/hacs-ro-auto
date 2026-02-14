@@ -8,15 +8,14 @@ import logging
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_MAKE, CONF_MODEL, CONF_NAME, CONF_VIN, CONF_YEAR
+from homeassistant.const import CONF_NAME, CONF_VIN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from . import get_cars_for_entry
 from .api import ErovinietaApiClient
-
-CONF_REGISTRATION_NUMBER = "registrationNumber"
+from .const import CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_YEAR
+from .helpers import get_cars_for_entry
 
 _LOGGER = logging.getLogger(__name__)
 

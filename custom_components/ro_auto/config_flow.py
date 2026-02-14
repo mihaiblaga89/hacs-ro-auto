@@ -8,7 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_MAKE, CONF_MODEL, CONF_NAME, CONF_VIN, CONF_YEAR
+from homeassistant.const import CONF_NAME, CONF_VIN
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -22,17 +22,19 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
 )
 
-from . import get_cars_for_entry
 from .const import (
     CONF_ACTION,
     CONF_ADD_ANOTHER,
     CONF_CARS,
     CONF_FLEET_NAME,
+    CONF_MAKE,
+    CONF_MODEL,
+    CONF_REGISTRATION_NUMBER,
+    CONF_YEAR,
     DEFAULT_NAME,
     DOMAIN,
 )
-
-CONF_REGISTRATION_NUMBER = "registrationNumber"
+from .helpers import get_cars_for_entry
 
 ACTIONS_ADD_CAR = "add_car"
 ACTIONS_REMOVE_CAR = "remove_car"

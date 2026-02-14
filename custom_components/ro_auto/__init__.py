@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CONF_CARS, DOMAIN
+from .const import DOMAIN
 from .coordinator import RoAutoCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
@@ -42,16 +42,3 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry after options update."""
     await hass.config_entries.async_reload(entry.entry_id)
-
-
-def get_cars_for_entry(entry: ConfigEntry) -> list[dict[str, Any]]:
-    """Return configured cars, preferring options over data."""
-    options_cars = entry.options.get(CONF_CARS)
-    if isinstance(options_cars, list):
-        return options_cars
-
-    data_cars = entry.data.get(CONF_CARS)
-    if isinstance(data_cars, list):
-        return data_cars
-
-    return []
