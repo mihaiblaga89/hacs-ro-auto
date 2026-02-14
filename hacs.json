@@ -1,7 +1,6 @@
 {
   "name": "RO Auto",
   "country": ["RO"],
-  "domains": ["ro_auto"],
   "content_in_root": false,
   "homeassistant": "2025.1.0",
   "render_readme": true

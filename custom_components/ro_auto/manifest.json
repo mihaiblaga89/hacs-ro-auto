@@ -5,8 +5,8 @@
     "@mihaiblaga89"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/mihaiblaga8/hacs-ro-auto",
-  "issue_tracker": "https://github.com/mihaiblaga8/hacs-ro-auto/issues",
+  "documentation": "https://github.com/mihaiblaga89/hacs-ro-auto",
+  "issue_tracker": "https://github.com/mihaiblaga89/hacs-ro-auto/issues",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "version": "0.1.0"
