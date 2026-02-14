@@ -54,7 +54,8 @@ class ErovinietaApiClient:
         params = {
             "plateNumber": plate_number.strip().upper(),
             "vin": vin.strip().upper(),
-            "cacheBuster": str(int(datetime.now(tz=UTC).timestamp() * 1000)),
+            # timestamp in milliseconds for cache busting
+            "t": str(int(datetime.now(tz=UTC).timestamp() * 1000)),
         }
 
         try:

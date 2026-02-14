@@ -30,12 +30,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up RO Auto sensors from a config entry."""
     coordinator: RoAutoCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = [RoAutoCarSensor(coordinator, entry, car) for car in coordinator.cars]
+    entities: list[SensorEntity] = []
+    for car in coordinator.cars:
+        entities.append(RoAutoCarVignetteStatusSensor(coordinator, entry, car))
+        entities.append(RoAutoCarVignetteExpirySensor(coordinator, entry, car))
     async_add_entities(entities)
 
 
-class RoAutoCarSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
-    """Represents one car in Home Assistant."""
+class RoAutoCarBaseSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
+    """Base sensor for a configured car."""
 
     _attr_has_entity_name = True
 
@@ -46,8 +49,7 @@ class RoAutoCarSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
         super().__init__(coordinator)
         self._vin = str(car[CONF_VIN]).upper()
         self._registration_number = str(car[CONF_REGISTRATION_NUMBER]).upper()
-        self._attr_unique_id = f"{entry.entry_id}_{self._vin}_vignette"
-        self._attr_name = "vignette"
+        self._entry_id = entry.entry_id
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._vin)},
             name=car[CONF_NAME],
@@ -55,27 +57,14 @@ class RoAutoCarSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
             model=car[CONF_MODEL],
             serial_number=self._vin,
         )
-        self._attr_icon = "mdi:car-info"
-
-    @property
-    def native_value(self) -> str:
-        """Return current vignette status."""
-        car_data = self.coordinator.data.get(self._vin, {})
-        valid = car_data.get("vignetteValid")
-        if valid is True:
-            return "valid"
-        if valid is False:
-            return "invalid"
-        return "unknown"
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         return self._vin in self.coordinator.data
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full car and vignette details."""
+    def _common_attributes(self) -> dict[str, Any]:
+        """Return attributes shared by all car sensors."""
         car_data = self.coordinator.data.get(self._vin, {})
         return {
             CONF_NAME: car_data.get(CONF_NAME),
@@ -92,3 +81,59 @@ class RoAutoCarSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
             "serieSasiu": car_data.get(CONF_VIN, self._vin),
             "dataStop": car_data.get("dataStop"),
         }
+
+
+class RoAutoCarVignetteStatusSensor(RoAutoCarBaseSensor):
+    """Sensor exposing vignette validity status."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the vignette status sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_vignette"
+        self._attr_name = "vignette"
+        self._attr_icon = "mdi:car-info"
+
+    @property
+    def native_value(self) -> str:
+        """Return current vignette status."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        valid = car_data.get("vignetteValid")
+        if valid is True:
+            return "valid"
+        if valid is False:
+            return "invalid"
+        return "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full car and vignette details."""
+        return self._common_attributes()
+
+
+class RoAutoCarVignetteExpirySensor(RoAutoCarBaseSensor):
+    """Sensor exposing vignette expiry date."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the vignette expiry sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_vignette_expiry_date"
+        self._attr_name = "vignette expiry date"
+        self._attr_icon = "mdi:calendar-clock"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return vignette expiry date as provided by API."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        expiry_date = car_data.get("vignetteExpiryDate")
+        if not expiry_date:
+            return None
+        return str(expiry_date)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full car and vignette details."""
+        return self._common_attributes()
