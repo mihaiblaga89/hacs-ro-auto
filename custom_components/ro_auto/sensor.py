@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -20,29 +20,37 @@ from .const import (CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_VIN,
 from .coordinator import RoAutoCoordinator
 
 
-def _parse_date(value: Any) -> datetime.date | None:
+def _parse_date(value: Any) -> date | None:
     """Parse a date-only value from API payloads."""
     if value is None:
         return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
     if isinstance(value, datetime):
         return value.date()
-    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
-        # Covers datetime.date without importing date explicitly.
-        try:
-            return value  # type: ignore[return-value]
-        except TypeError:
-            pass
 
     text = str(value).strip()
     if not text:
         return None
 
-    # RCA API sample: "23.10.2026"
-    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+    # Common examples:
+    # - RCA API: "23.10.2026"
+    # - Vignette data: "2026-07-31 23:59:59"
+    for fmt in (
+        "%d.%m.%Y",
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M:%S",
+    ):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
+
+    # Try ISO parsing (accept " " separator too).
+    try:
+        return datetime.fromisoformat(text.replace(" ", "T")).date()
+    except ValueError:
+        return None
     return None
 
 
@@ -125,6 +133,32 @@ class RoAutoCarBaseSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
             "lastUpdate": car_data.get("lastUpdate"),
         }
 
+    def _car_attributes(self) -> dict[str, Any]:
+        """Return car metadata attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            CONF_NAME: car_data.get(CONF_NAME),
+            CONF_MAKE: car_data.get(CONF_MAKE),
+            CONF_MODEL: car_data.get(CONF_MODEL),
+            CONF_YEAR: car_data.get(CONF_YEAR),
+            CONF_VIN: car_data.get(CONF_VIN, self._vin),
+            CONF_REGISTRATION_NUMBER: car_data.get(
+                CONF_REGISTRATION_NUMBER, self._registration_number
+            ),
+        }
+
+    def _car_attributes_for_expiry(self) -> dict[str, Any]:
+        """Return minimal car attributes for expiry sensors."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            CONF_MAKE: car_data.get(CONF_MAKE),
+            CONF_MODEL: car_data.get(CONF_MODEL),
+            CONF_VIN: car_data.get(CONF_VIN, self._vin),
+            CONF_REGISTRATION_NUMBER: car_data.get(
+                CONF_REGISTRATION_NUMBER, self._registration_number
+            ),
+        }
+
 
 class RoAutoCarVignetteStatusSensor(RoAutoCarBaseSensor):
     """Sensor exposing vignette validity status."""
@@ -137,6 +171,9 @@ class RoAutoCarVignetteStatusSensor(RoAutoCarBaseSensor):
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_vignette"
         self._attr_name = "vignette"
         self._attr_icon = "mdi:car-info"
+        # Display as a known set of values.
+        self._attr_device_class = SensorDeviceClass.ENUM
+        self._attr_options = ["valid", "invalid", "unknown"]
 
     @property
     def native_value(self) -> str:
@@ -151,8 +188,14 @@ class RoAutoCarVignetteStatusSensor(RoAutoCarBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full car and vignette details."""
-        return self._common_attributes()
+        """Return vignette-only attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            "vignetteValid": car_data.get("vignetteValid"),
+            "vignetteExpiryDate": car_data.get("vignetteExpiryDate"),
+            "vignetteLastUpdate": car_data.get("vignetteLastUpdate"),
+            "dataStop": car_data.get("dataStop"),
+        }
 
 
 class RoAutoCarVignetteExpirySensor(RoAutoCarBaseSensor):
@@ -169,15 +212,22 @@ class RoAutoCarVignetteExpirySensor(RoAutoCarBaseSensor):
         self._attr_device_class = SensorDeviceClass.DATE
 
     @property
-    def native_value(self) -> datetime.date | None:
+    def native_value(self) -> date | None:
         """Return vignette expiry date (date-only)."""
         car_data = self.coordinator.data.get(self._vin, {})
         return _parse_date(car_data.get("vignetteExpiryDate"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full car and vignette details."""
-        return self._common_attributes()
+        """Return car + vignette expiry attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            **self._car_attributes_for_expiry(),
+            "vignetteValid": car_data.get("vignetteValid"),
+            "vignetteExpiryDate": car_data.get("vignetteExpiryDate"),
+            "vignetteLastUpdate": car_data.get("vignetteLastUpdate"),
+            "dataStop": car_data.get("dataStop"),
+        }
 
 
 class RoAutoCarRcaStatusSensor(RoAutoCarBaseSensor):
@@ -191,6 +241,8 @@ class RoAutoCarRcaStatusSensor(RoAutoCarBaseSensor):
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca"
         self._attr_name = "rca"
         self._attr_icon = "mdi:shield-car"
+        self._attr_device_class = SensorDeviceClass.ENUM
+        self._attr_options = ["valid", "invalid", "unknown"]
 
     @property
     def native_value(self) -> str:
@@ -205,8 +257,16 @@ class RoAutoCarRcaStatusSensor(RoAutoCarBaseSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full car and RCA details."""
-        return self._common_attributes()
+        """Return RCA-only attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            "rcaQueryDate": car_data.get("rcaQueryDate"),
+            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
+            "rcaIsValid": car_data.get("rcaIsValid"),
+            "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
+            "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
+            "rcaLastUpdate": car_data.get("rcaLastUpdate"),
+        }
 
 
 class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
@@ -223,12 +283,21 @@ class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
         self._attr_device_class = SensorDeviceClass.DATE
 
     @property
-    def native_value(self) -> datetime.date | None:
+    def native_value(self) -> date | None:
         """Return RCA validity end date (date-only)."""
         car_data = self.coordinator.data.get(self._vin, {})
         return _parse_date(car_data.get("rcaValidityEndDate"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full car and RCA details."""
-        return self._common_attributes()
+        """Return car + RCA expiry attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            **self._car_attributes_for_expiry(),
+            "rcaQueryDate": car_data.get("rcaQueryDate"),
+            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
+            "rcaIsValid": car_data.get("rcaIsValid"),
+            "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
+            "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
+            "rcaLastUpdate": car_data.get("rcaLastUpdate"),
+        }

@@ -11,17 +11,21 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import ErovinietaApiClient, RcaApiClient
 from .const import (CONF_ENABLE_RCA, CONF_MAKE, CONF_MODEL, CONF_RCA_API_URL,
                     CONF_RCA_PASSWORD, CONF_RCA_USERNAME,
-                    CONF_REGISTRATION_NUMBER, CONF_VIN, CONF_YEAR)
+                    CONF_REGISTRATION_NUMBER, CONF_VIN, CONF_YEAR, DOMAIN)
 from .helpers import get_cars_for_entry, get_rca_settings_for_entry
 
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(days=1)
+CACHE_TTL = timedelta(hours=24)
+CACHE_STORAGE_VERSION = 1
+CACHE_STORAGE_KEY = f"{DOMAIN}.cache"
 
 
 class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -30,6 +34,7 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize coordinator."""
         self.config_entry = entry
+        self._store: Store[dict[str, Any]] = Store(hass, CACHE_STORAGE_VERSION, CACHE_STORAGE_KEY)
         self.cars = get_cars_for_entry(entry)
         self._api = ErovinietaApiClient(async_get_clientsession(hass))
         self._rca_settings = get_rca_settings_for_entry(entry)
@@ -54,6 +59,65 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             update_interval=UPDATE_INTERVAL,
             always_update=False,
         )
+
+    async def async_load_cache(self) -> bool:
+        """Load cached data and set it if it is still fresh.
+
+        This prevents a forced API refresh on every Home Assistant restart.
+        """
+        try:
+            cache = await self._store.async_load()
+        except Exception as err:  # pragma: no cover
+            _LOGGER.debug("Failed to load cache: %s", err)
+            return False
+
+        if not isinstance(cache, dict):
+            return False
+
+        entry_cache = cache.get(self.config_entry.entry_id)
+        if not isinstance(entry_cache, dict):
+            return False
+
+        saved_at = entry_cache.get("saved_at")
+        cached_data = entry_cache.get("data")
+        if not isinstance(saved_at, str) or not isinstance(cached_data, dict):
+            return False
+
+        try:
+            saved_dt = datetime.fromisoformat(saved_at)
+        except ValueError:
+            return False
+
+        now = datetime.now(tz=UTC)
+        if saved_dt.tzinfo is None:
+            saved_dt = saved_dt.replace(tzinfo=UTC)
+
+        if now - saved_dt > CACHE_TTL:
+            return False
+
+        # Use cached data; polling will resume normally once entities subscribe.
+        self.async_set_updated_data(cached_data)
+        return True
+
+    async def _async_save_cache(self, data: dict[str, dict[str, Any]]) -> None:
+        """Persist cached data to Home Assistant storage."""
+        try:
+            cache = await self._store.async_load()
+        except Exception:
+            cache = None
+
+        if not isinstance(cache, dict):
+            cache = {}
+
+        cache[self.config_entry.entry_id] = {
+            "saved_at": datetime.now(tz=UTC).isoformat(),
+            "data": data,
+        }
+
+        try:
+            await self._store.async_save(cache)
+        except Exception as err:  # pragma: no cover
+            _LOGGER.debug("Failed to save cache: %s", err)
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Fetch data for all configured cars."""
@@ -82,6 +146,7 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
             data[vin] = result
 
+        await self._async_save_cache(data)
         return data
 
     async def _async_build_car_payload(self, car: dict[str, Any]) -> dict[str, Any]:
