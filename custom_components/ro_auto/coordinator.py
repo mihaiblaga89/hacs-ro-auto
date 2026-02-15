@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -14,11 +15,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import ErovinietaApiClient, RcaApiClient
-from .const import (CONF_ENABLE_RCA, CONF_MAKE, CONF_MODEL, CONF_RCA_API_URL,
-                    CONF_RCA_PASSWORD, CONF_RCA_USERNAME,
-                    CONF_REGISTRATION_NUMBER, CONF_VIN, CONF_YEAR, DOMAIN)
-from .helpers import get_cars_for_entry, get_rca_settings_for_entry
+from .api import ErovinietaApiClient, ItpApiClient, RcaApiClient
+from .const import (CONF_ENABLE_ITP, CONF_ENABLE_RCA, CONF_ITP_API_URL,
+                    CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_MAKE,
+                    CONF_MODEL, CONF_RCA_API_URL, CONF_RCA_PASSWORD,
+                    CONF_RCA_USERNAME, CONF_REGISTRATION_NUMBER, CONF_VIN,
+                    CONF_YEAR, DOMAIN)
+from .helpers import (get_cars_for_entry, get_itp_settings_for_entry,
+                      get_rca_settings_for_entry)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +30,7 @@ UPDATE_INTERVAL = timedelta(days=1)
 CACHE_TTL = timedelta(hours=24)
 CACHE_STORAGE_VERSION = 1
 CACHE_STORAGE_KEY = f"{DOMAIN}.cache"
+NOTIFICATION_ID_PREFIX = f"{DOMAIN}_api_errors"
 
 
 class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -45,6 +50,20 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             password = self._rca_settings.get(CONF_RCA_PASSWORD) or ""
             if api_url and username and password:
                 self._rca_client = RcaApiClient(
+                    async_get_clientsession(hass),
+                    api_url=api_url,
+                    username=username,
+                    password=password,
+                )
+
+        self._itp_settings = get_itp_settings_for_entry(entry)
+        self._itp_client: ItpApiClient | None = None
+        if self._itp_settings.get(CONF_ENABLE_ITP):
+            api_url = self._itp_settings.get(CONF_ITP_API_URL) or ""
+            username = self._itp_settings.get(CONF_ITP_USERNAME) or ""
+            password = self._itp_settings.get(CONF_ITP_PASSWORD) or ""
+            if api_url and username and password:
+                self._itp_client = ItpApiClient(
                     async_get_clientsession(hass),
                     api_url=api_url,
                     username=username,
@@ -141,18 +160,65 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     "rcaIsValid": previous.get("rcaIsValid"),
                     "rcaValidityStartDate": previous.get("rcaValidityStartDate"),
                     "rcaValidityEndDate": previous.get("rcaValidityEndDate"),
+                    "vignetteError": previous.get("vignetteError"),
+                    "rcaError": previous.get("rcaError"),
+                    "itpError": previous.get("itpError"),
+                    "itpStatus": previous.get("itpStatus"),
+                    "itpAttempts": previous.get("itpAttempts"),
+                    "itpValidUntilRaw": previous.get("itpValidUntilRaw"),
+                    "itpIsValid": previous.get("itpIsValid"),
+                    "itpLastUpdate": previous.get("itpLastUpdate"),
                 }
                 continue
 
             data[vin] = result
 
+        await self._async_handle_failures_notification(data)
         await self._async_save_cache(data)
         return data
 
-    async def _async_build_car_payload(self, car: dict[str, Any]) -> dict[str, Any]:
-        """Build one car payload with live vignette/RCA data.
+    async def _async_handle_failures_notification(
+        self, data: dict[str, dict[str, Any]]
+    ) -> None:
+        """Create/update a persistent notification when API calls fail."""
+        errors: list[str] = []
+        for vin, car_data in data.items():
+            vignette_error = car_data.get("vignetteError")
+            if vignette_error:
+                errors.append(f"- {vin}: vignette error: {vignette_error}")
 
-        Vignette and RCA are intentionally independent: if either call fails, we keep
+            if self._rca_client is not None:
+                rca_error = car_data.get("rcaError")
+                if rca_error:
+                    errors.append(f"- {vin}: RCA error: {rca_error}")
+
+            if self._itp_client is not None:
+                itp_error = car_data.get("itpError")
+                if itp_error:
+                    errors.append(f"- {vin}: ITP error: {itp_error}")
+
+        notification_id = f"{NOTIFICATION_ID_PREFIX}_{self.config_entry.entry_id}"
+
+        if not errors:
+            persistent_notification.async_dismiss(self.hass, notification_id)
+            return
+
+        message = (
+            "RO Auto has one or more API errors:\n\n"
+            + "\n".join(errors)
+            + "\n\nCheck Home Assistant logs for full details."
+        )
+        persistent_notification.async_create(
+            self.hass,
+            message,
+            title="RO Auto API error",
+            notification_id=notification_id,
+        )
+
+    async def _async_build_car_payload(self, car: dict[str, Any]) -> dict[str, Any]:
+        """Build one car payload with live vignette/RCA/ITP data.
+
+        Vignette, RCA and ITP are intentionally independent: if any call fails, we keep
         the last known values for that subsystem (or None if we have none yet).
         """
         vin = str(car[CONF_VIN]).upper()
@@ -162,19 +228,15 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         vignette_task = self._api.async_fetch_vignette(plate_number=plate, vin=vin)
         rca_task = self._rca_client.async_check(plate=plate) if self._rca_client else None
+        itp_task = self._itp_client.async_check(vin=vin) if self._itp_client else None
 
-        vignette_result: Any
-        rca_result: Any
-        if rca_task is not None:
-            vignette_result, rca_result = await asyncio.gather(
-                vignette_task,
-                rca_task,
-                return_exceptions=True,
-            )
-        else:
-            vignette_result = await asyncio.gather(vignette_task, return_exceptions=True)
-            vignette_result = vignette_result[0]
-            rca_result = None
+        results = await asyncio.gather(
+            vignette_task,
+            rca_task if rca_task is not None else asyncio.sleep(0, result=None),
+            itp_task if itp_task is not None else asyncio.sleep(0, result=None),
+            return_exceptions=True,
+        )
+        vignette_result, rca_result, itp_result = results
 
         now = datetime.now(tz=UTC).isoformat()
 
@@ -190,21 +252,30 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "vignetteExpiryDate": previous.get("vignetteExpiryDate"),
             "dataStop": previous.get("dataStop"),
             "vignetteLastUpdate": previous.get("vignetteLastUpdate"),
+            "vignetteError": previous.get("vignetteError"),
             "rcaQueryDate": previous.get("rcaQueryDate"),
             "rcaIsValid": previous.get("rcaIsValid"),
             "rcaValidityStartDate": previous.get("rcaValidityStartDate"),
             "rcaValidityEndDate": previous.get("rcaValidityEndDate"),
             "rcaLastUpdate": previous.get("rcaLastUpdate"),
+            "rcaError": previous.get("rcaError"),
+            "itpStatus": previous.get("itpStatus"),
+            "itpAttempts": previous.get("itpAttempts"),
+            "itpValidUntilRaw": previous.get("itpValidUntilRaw"),
+            "itpIsValid": previous.get("itpIsValid"),
+            "itpLastUpdate": previous.get("itpLastUpdate"),
+            "itpError": previous.get("itpError"),
             "lastUpdate": previous.get("lastUpdate"),
         }
 
         if isinstance(vignette_result, Exception):
-            _LOGGER.debug(
-                "Vignette refresh failed for %s (%s): %s",
+            _LOGGER.warning(
+                "Vignette refresh failed for %s (%s)",
                 car.get(CONF_NAME, plate),
                 plate,
-                vignette_result,
+                exc_info=vignette_result,
             )
+            payload["vignetteError"] = str(vignette_result)
         else:
             vignette_data = vignette_result
             payload.update(
@@ -213,17 +284,19 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     "vignetteExpiryDate": vignette_data.get("vignetteExpiryDate"),
                     "dataStop": vignette_data.get("dataStop"),
                     "vignetteLastUpdate": now,
+                    "vignetteError": None,
                 }
             )
             payload["lastUpdate"] = now
 
         if isinstance(rca_result, Exception):
-            _LOGGER.debug(
-                "RCA refresh failed for %s (%s): %s",
+            _LOGGER.warning(
+                "RCA refresh failed for %s (%s)",
                 car.get(CONF_NAME, plate),
                 plate,
-                rca_result,
+                exc_info=rca_result,
             )
+            payload["rcaError"] = str(rca_result)
         elif isinstance(rca_result, dict):
             payload.update(
                 {
@@ -232,6 +305,31 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
                     "rcaValidityStartDate": rca_result.get("validity_start_date"),
                     "rcaValidityEndDate": rca_result.get("validity_end_date"),
                     "rcaLastUpdate": now,
+                    "rcaError": None,
+                }
+            )
+            payload["lastUpdate"] = now
+
+        if isinstance(itp_result, Exception):
+            _LOGGER.warning(
+                "ITP refresh failed for %s (%s)",
+                car.get(CONF_NAME, vin),
+                vin,
+                exc_info=itp_result,
+            )
+            payload["itpError"] = str(itp_result)
+        elif isinstance(itp_result, dict):
+            status = itp_result.get("status")
+            valid_until_raw = itp_result.get("itp_valid_until_raw")
+            is_valid = bool(status == "ok" and valid_until_raw)
+            payload.update(
+                {
+                    "itpStatus": status,
+                    "itpAttempts": itp_result.get("attempts"),
+                    "itpValidUntilRaw": valid_until_raw,
+                    "itpIsValid": is_valid,
+                    "itpLastUpdate": now,
+                    "itpError": None,
                 }
             )
             payload["lastUpdate"] = now
@@ -242,3 +340,8 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     def rca_enabled(self) -> bool:
         """Return if RCA is enabled and configured."""
         return self._rca_client is not None
+
+    @property
+    def itp_enabled(self) -> bool:
+        """Return if ITP is enabled and configured."""
+        return self._itp_client is not None

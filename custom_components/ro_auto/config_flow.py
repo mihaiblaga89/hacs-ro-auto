@@ -26,8 +26,12 @@ from .const import (
     CONF_ACTION,
     CONF_ADD_ANOTHER,
     CONF_CARS,
+    CONF_ENABLE_ITP,
     CONF_ENABLE_RCA,
     CONF_FLEET_NAME,
+    CONF_ITP_API_URL,
+    CONF_ITP_PASSWORD,
+    CONF_ITP_USERNAME,
     CONF_MAKE,
     CONF_MODEL,
     CONF_RCA_API_URL,
@@ -90,6 +94,10 @@ def _initial_schema() -> vol.Schema:
         vol.Optional(CONF_RCA_API_URL): TextSelector(TextSelectorConfig(type="text")),
         vol.Optional(CONF_RCA_USERNAME): TextSelector(TextSelectorConfig(type="text")),
         vol.Optional(CONF_RCA_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+        vol.Optional(CONF_ENABLE_ITP, default=False): BooleanSelector(),
+        vol.Optional(CONF_ITP_API_URL): TextSelector(TextSelectorConfig(type="text")),
+        vol.Optional(CONF_ITP_USERNAME): TextSelector(TextSelectorConfig(type="text")),
+        vol.Optional(CONF_ITP_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
     }
     schema.update(_car_schema(include_add_another=True).schema)
     return vol.Schema(schema)
@@ -119,6 +127,7 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._cars: list[dict[str, Any]] = []
         self._fleet_name = DEFAULT_NAME
         self._rca_settings: dict[str, Any] = {}
+        self._itp_settings: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -133,14 +142,27 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             rca_username = str(user_input.pop(CONF_RCA_USERNAME, "")).strip()
             rca_password = str(user_input.pop(CONF_RCA_PASSWORD, "")).strip()
 
+            enable_itp = bool(user_input.pop(CONF_ENABLE_ITP, False))
+            itp_api_url = str(user_input.pop(CONF_ITP_API_URL, "")).strip()
+            itp_username = str(user_input.pop(CONF_ITP_USERNAME, "")).strip()
+            itp_password = str(user_input.pop(CONF_ITP_PASSWORD, "")).strip()
+
             if enable_rca and (not rca_api_url or not rca_username or not rca_password):
                 errors["base"] = "missing_rca_settings"
+            elif enable_itp and (not itp_api_url or not itp_username or not itp_password):
+                errors["base"] = "missing_itp_settings"
             else:
                 self._rca_settings = {
                     CONF_ENABLE_RCA: enable_rca,
                     CONF_RCA_API_URL: rca_api_url,
                     CONF_RCA_USERNAME: rca_username,
                     CONF_RCA_PASSWORD: rca_password,
+                }
+                self._itp_settings = {
+                    CONF_ENABLE_ITP: enable_itp,
+                    CONF_ITP_API_URL: itp_api_url,
+                    CONF_ITP_USERNAME: itp_username,
+                    CONF_ITP_PASSWORD: itp_password,
                 }
             car = _normalize_car(user_input)
             duplicate_vin = any(existing[CONF_VIN] == car[CONF_VIN] for existing in self._cars)
@@ -193,6 +215,7 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data={
                 CONF_CARS: self._cars,
                 **self._rca_settings,
+                **self._itp_settings,
             },
         )
 
@@ -221,8 +244,63 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
         if cars:
             menu_options.append(ACTIONS_REMOVE_CAR)
         menu_options.append("rca_settings")
+        menu_options.append("itp_settings")
 
         return self.async_show_menu(step_id="init", menu_options=menu_options)
+
+    async def async_step_itp_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure ITP settings from options flow."""
+        if user_input is not None:
+            current = self._config_entry.options | self._config_entry.data
+            enable_itp = bool(user_input.get(CONF_ENABLE_ITP, current.get(CONF_ENABLE_ITP, False)))
+            api_url = str(user_input.get(CONF_ITP_API_URL, current.get(CONF_ITP_API_URL, "")) or "").strip()
+            username = str(user_input.get(CONF_ITP_USERNAME, current.get(CONF_ITP_USERNAME, "")) or "").strip()
+            password = str(user_input.get(CONF_ITP_PASSWORD, "") or "").strip() or str(
+                current.get(CONF_ITP_PASSWORD, "") or ""
+            )
+
+            errors: dict[str, str] = {}
+            if enable_itp and (not api_url or not username or not password):
+                errors["base"] = "missing_itp_settings"
+            if errors:
+                return self.async_show_form(
+                    step_id="itp_settings",
+                    data_schema=self._itp_schema(),
+                    errors=errors,
+                )
+
+            return self.async_create_entry(
+                title="",
+                data={
+                    CONF_ENABLE_ITP: enable_itp,
+                    CONF_ITP_API_URL: api_url,
+                    CONF_ITP_USERNAME: username,
+                    CONF_ITP_PASSWORD: password,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="itp_settings",
+            data_schema=self._itp_schema(),
+        )
+
+    def _itp_schema(self) -> vol.Schema:
+        """ITP settings schema."""
+        current = self._config_entry.options | self._config_entry.data
+        return vol.Schema(
+            {
+                vol.Optional(CONF_ENABLE_ITP, default=bool(current.get(CONF_ENABLE_ITP, False))): BooleanSelector(),
+                vol.Optional(CONF_ITP_API_URL, default=str(current.get(CONF_ITP_API_URL, "") or "")): TextSelector(
+                    TextSelectorConfig(type="text")
+                ),
+                vol.Optional(CONF_ITP_USERNAME, default=str(current.get(CONF_ITP_USERNAME, "") or "")): TextSelector(
+                    TextSelectorConfig(type="text")
+                ),
+                vol.Optional(CONF_ITP_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+            }
+        )
 
     async def async_step_rca_settings(
         self, user_input: dict[str, Any] | None = None

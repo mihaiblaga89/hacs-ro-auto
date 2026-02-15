@@ -11,6 +11,10 @@
           "rca_api_url": "RCA API URL",
           "rca_username": "RCA API username",
           "rca_password": "RCA API password",
+          "enable_itp": "Enable ITP checks",
+          "itp_api_url": "ITP API URL",
+          "itp_username": "ITP API username",
+          "itp_password": "ITP API password",
           "name": "Vehicle name",
           "make": "Make",
           "model": "Model",
@@ -35,7 +39,8 @@
     },
     "error": {
       "duplicate_car": "This VIN already exists in the fleet.",
-      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password."
+      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password.",
+      "missing_itp_settings": "To enable ITP checks, you must provide the ITP API URL, username, and password."
     }
   },
   "options": {
@@ -45,7 +50,8 @@
         "menu_options": {
           "add_car": "Add a car",
           "remove_car": "Remove a car",
-          "rca_settings": "RCA settings"
+          "rca_settings": "RCA settings",
+          "itp_settings": "ITP settings"
         }
       },
       "rca_settings": {
@@ -55,6 +61,15 @@
           "rca_api_url": "RCA API URL",
           "rca_username": "RCA API username",
           "rca_password": "RCA API password"
+        }
+      },
+      "itp_settings": {
+        "title": "ITP settings",
+        "data": {
+          "enable_itp": "Enable ITP checks",
+          "itp_api_url": "ITP API URL",
+          "itp_username": "ITP API username",
+          "itp_password": "ITP API password"
         }
       },
       "add_car": {
@@ -77,7 +92,8 @@
     },
     "error": {
       "duplicate_car": "This VIN already exists in the fleet.",
-      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password."
+      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password.",
+      "missing_itp_settings": "To enable ITP checks, you must provide the ITP API URL, username, and password."
     }
   }
 }

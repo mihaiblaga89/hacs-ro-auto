@@ -9,6 +9,10 @@ from homeassistant.config_entries import ConfigEntry
 from .const import (
     CONF_CARS,
     CONF_ENABLE_RCA,
+    CONF_ENABLE_ITP,
+    CONF_ITP_API_URL,
+    CONF_ITP_PASSWORD,
+    CONF_ITP_USERNAME,
     CONF_RCA_API_URL,
     CONF_RCA_PASSWORD,
     CONF_RCA_USERNAME,
@@ -36,4 +40,14 @@ def get_rca_settings_for_entry(entry: ConfigEntry) -> dict[str, Any]:
     data = {k: entry.data.get(k) for k in keys if k in entry.data}
 
     # Options override data for reconfiguration via the gear menu.
+    return {**data, **options}
+
+
+def get_itp_settings_for_entry(entry: ConfigEntry) -> dict[str, Any]:
+    """Return ITP settings, preferring options over data."""
+    keys = (CONF_ENABLE_ITP, CONF_ITP_API_URL, CONF_ITP_USERNAME, CONF_ITP_PASSWORD)
+
+    options = {k: entry.options.get(k) for k in keys if k in entry.options}
+    data = {k: entry.data.get(k) for k in keys if k in entry.data}
+
     return {**data, **options}

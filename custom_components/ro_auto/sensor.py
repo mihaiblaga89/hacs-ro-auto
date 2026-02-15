@@ -62,16 +62,19 @@ async def async_setup_entry(
     """Set up RO Auto sensors from a config entry."""
     coordinator: RoAutoCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    # If RCA is disabled/unconfigured, remove any old RCA entities that may have
-    # been created when RCA was previously enabled.
-    if not coordinator.rca_enabled:
-        registry = er.async_get(hass)
-        for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if entity_entry.platform != DOMAIN:
-                continue
-            unique_id = entity_entry.unique_id or ""
-            if unique_id.endswith("_rca") or unique_id.endswith("_rca_expiry_date"):
-                registry.async_remove(entity_entry.entity_id)
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity_entry.platform != DOMAIN:
+            continue
+        unique_id = entity_entry.unique_id or ""
+        if not coordinator.rca_enabled and (
+            unique_id.endswith("_rca") or unique_id.endswith("_rca_expiry_date")
+        ):
+            registry.async_remove(entity_entry.entity_id)
+        if not coordinator.itp_enabled and (
+            unique_id.endswith("_itp") or unique_id.endswith("_itp_expiry_date")
+        ):
+            registry.async_remove(entity_entry.entity_id)
 
     entities: list[SensorEntity] = []
     for car in coordinator.cars:
@@ -80,6 +83,9 @@ async def async_setup_entry(
         if coordinator.rca_enabled:
             entities.append(RoAutoCarRcaStatusSensor(coordinator, entry, car))
             entities.append(RoAutoCarRcaExpirySensor(coordinator, entry, car))
+        if coordinator.itp_enabled:
+            entities.append(RoAutoCarItpStatusSensor(coordinator, entry, car))
+            entities.append(RoAutoCarItpExpirySensor(coordinator, entry, car))
     async_add_entities(entities)
 
 
@@ -298,4 +304,75 @@ class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
             "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
             "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
             "rcaLastUpdate": car_data.get("rcaLastUpdate"),
+        }
+
+
+class RoAutoCarItpStatusSensor(RoAutoCarBaseSensor):
+    """Sensor exposing ITP validity status."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the ITP status sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_itp"
+        self._attr_name = "itp"
+        self._attr_icon = "mdi:wrench-check"
+        self._attr_device_class = SensorDeviceClass.ENUM
+        self._attr_options = ["valid", "invalid", "unknown"]
+
+    @property
+    def native_value(self) -> str:
+        """Return current ITP status."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        valid = car_data.get("itpIsValid")
+        if valid is True:
+            return "valid"
+        if valid is False:
+            return "invalid"
+        return "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return ITP-only attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            "itpStatus": car_data.get("itpStatus"),
+            "itpAttempts": car_data.get("itpAttempts"),
+            "itpValidUntilRaw": car_data.get("itpValidUntilRaw"),
+            "itpIsValid": car_data.get("itpIsValid"),
+            "itpLastUpdate": car_data.get("itpLastUpdate"),
+        }
+
+
+class RoAutoCarItpExpirySensor(RoAutoCarBaseSensor):
+    """Sensor exposing ITP validity end date."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the ITP expiry sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_itp_expiry_date"
+        self._attr_name = "itp expiry date"
+        self._attr_icon = "mdi:calendar-check"
+        self._attr_device_class = SensorDeviceClass.DATE
+
+    @property
+    def native_value(self) -> date | None:
+        """Return ITP validity end date (date-only)."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return _parse_date(car_data.get("itpValidUntilRaw"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return car + ITP expiry attributes."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        return {
+            **self._car_attributes_for_expiry(),
+            "itpStatus": car_data.get("itpStatus"),
+            "itpAttempts": car_data.get("itpAttempts"),
+            "itpValidUntilRaw": car_data.get("itpValidUntilRaw"),
+            "itpIsValid": car_data.get("itpIsValid"),
+            "itpLastUpdate": car_data.get("itpLastUpdate"),
         }
