@@ -26,9 +26,13 @@ from .const import (
     CONF_ACTION,
     CONF_ADD_ANOTHER,
     CONF_CARS,
+    CONF_ENABLE_RCA,
     CONF_FLEET_NAME,
     CONF_MAKE,
     CONF_MODEL,
+    CONF_RCA_API_URL,
+    CONF_RCA_PASSWORD,
+    CONF_RCA_USERNAME,
     CONF_REGISTRATION_NUMBER,
     CONF_VIN,
     CONF_YEAR,
@@ -81,7 +85,11 @@ def _initial_schema() -> vol.Schema:
     schema: dict[vol.Marker, Any] = {
         vol.Optional(CONF_FLEET_NAME, default=DEFAULT_NAME): TextSelector(
             TextSelectorConfig(type="text")
-        )
+        ),
+        vol.Optional(CONF_ENABLE_RCA, default=False): BooleanSelector(),
+        vol.Optional(CONF_RCA_API_URL): TextSelector(TextSelectorConfig(type="text")),
+        vol.Optional(CONF_RCA_USERNAME): TextSelector(TextSelectorConfig(type="text")),
+        vol.Optional(CONF_RCA_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
     }
     schema.update(_car_schema(include_add_another=True).schema)
     return vol.Schema(schema)
@@ -110,6 +118,7 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize flow."""
         self._cars: list[dict[str, Any]] = []
         self._fleet_name = DEFAULT_NAME
+        self._rca_settings: dict[str, Any] = {}
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -119,10 +128,26 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._fleet_name = str(user_input.pop(CONF_FLEET_NAME, DEFAULT_NAME)).strip()
+            enable_rca = bool(user_input.pop(CONF_ENABLE_RCA, False))
+            rca_api_url = str(user_input.pop(CONF_RCA_API_URL, "")).strip()
+            rca_username = str(user_input.pop(CONF_RCA_USERNAME, "")).strip()
+            rca_password = str(user_input.pop(CONF_RCA_PASSWORD, "")).strip()
+
+            if enable_rca and (not rca_api_url or not rca_username or not rca_password):
+                errors["base"] = "missing_rca_settings"
+            else:
+                self._rca_settings = {
+                    CONF_ENABLE_RCA: enable_rca,
+                    CONF_RCA_API_URL: rca_api_url,
+                    CONF_RCA_USERNAME: rca_username,
+                    CONF_RCA_PASSWORD: rca_password,
+                }
             car = _normalize_car(user_input)
             duplicate_vin = any(existing[CONF_VIN] == car[CONF_VIN] for existing in self._cars)
 
-            if duplicate_vin:
+            if errors:
+                pass
+            elif duplicate_vin:
                 errors["base"] = "duplicate_car"
             else:
                 self._cars.append(car)
@@ -163,7 +188,13 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _async_create_entry(self) -> config_entries.ConfigFlowResult:
         """Create the config entry."""
         title = self._fleet_name or (self._cars[0][CONF_NAME] if self._cars else DEFAULT_NAME)
-        return self.async_create_entry(title=title, data={CONF_CARS: self._cars})
+        return self.async_create_entry(
+            title=title,
+            data={
+                CONF_CARS: self._cars,
+                **self._rca_settings,
+            },
+        )
 
     @staticmethod
     @callback
@@ -189,8 +220,65 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
         menu_options = [ACTIONS_ADD_CAR]
         if cars:
             menu_options.append(ACTIONS_REMOVE_CAR)
+        menu_options.append("rca_settings")
 
         return self.async_show_menu(step_id="init", menu_options=menu_options)
+
+    async def async_step_rca_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure RCA settings from options flow."""
+        if user_input is not None:
+            current = self._config_entry.options | self._config_entry.data
+            enable_rca = bool(user_input.get(CONF_ENABLE_RCA, current.get(CONF_ENABLE_RCA, False)))
+            api_url = str(user_input.get(CONF_RCA_API_URL, current.get(CONF_RCA_API_URL, "")) or "").strip()
+            username = str(user_input.get(CONF_RCA_USERNAME, current.get(CONF_RCA_USERNAME, "")) or "").strip()
+            # If empty, keep the existing password.
+            password = str(user_input.get(CONF_RCA_PASSWORD, "") or "").strip() or str(
+                current.get(CONF_RCA_PASSWORD, "") or ""
+            )
+
+            errors: dict[str, str] = {}
+            if enable_rca and (not api_url or not username or not password):
+                errors["base"] = "missing_rca_settings"
+            if errors:
+                return self.async_show_form(
+                    step_id="rca_settings",
+                    data_schema=self._rca_schema(),
+                    errors=errors,
+                )
+
+            return self.async_create_entry(
+                title="",
+                data={
+                    CONF_ENABLE_RCA: enable_rca,
+                    CONF_RCA_API_URL: api_url,
+                    CONF_RCA_USERNAME: username,
+                    CONF_RCA_PASSWORD: password,
+                },
+            )
+
+        return self.async_show_form(
+            step_id="rca_settings",
+            data_schema=self._rca_schema(),
+        )
+
+    def _rca_schema(self) -> vol.Schema:
+        """RCA settings schema."""
+        current = self._config_entry.options | self._config_entry.data
+        return vol.Schema(
+            {
+                vol.Optional(CONF_ENABLE_RCA, default=bool(current.get(CONF_ENABLE_RCA, False))): BooleanSelector(),
+                vol.Optional(CONF_RCA_API_URL, default=str(current.get(CONF_RCA_API_URL, "") or "")): TextSelector(
+                    TextSelectorConfig(type="text")
+                ),
+                vol.Optional(CONF_RCA_USERNAME, default=str(current.get(CONF_RCA_USERNAME, "") or "")): TextSelector(
+                    TextSelectorConfig(type="text")
+                ),
+                # We cannot safely show the existing password; user can re-enter to change it.
+                vol.Optional(CONF_RCA_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+            }
+        )
 
     async def async_step_add_car(
         self, user_input: dict[str, Any] | None = None

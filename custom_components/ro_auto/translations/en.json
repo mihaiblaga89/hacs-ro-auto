@@ -7,6 +7,10 @@
         "description": "Add the first car and optionally continue with more.",
         "data": {
           "fleet_name": "Fleet name",
+          "enable_rca": "Enable RCA checks",
+          "rca_api_url": "RCA API URL",
+          "rca_username": "RCA API username",
+          "rca_password": "RCA API password",
           "name": "Vehicle name",
           "make": "Make",
           "model": "Model",
@@ -30,7 +34,8 @@
       }
     },
     "error": {
-      "duplicate_car": "This VIN already exists in the fleet."
+      "duplicate_car": "This VIN already exists in the fleet.",
+      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password."
     }
   },
   "options": {
@@ -39,7 +44,17 @@
         "title": "Manage cars",
         "menu_options": {
           "add_car": "Add a car",
-          "remove_car": "Remove a car"
+          "remove_car": "Remove a car",
+          "rca_settings": "RCA settings"
+        }
+      },
+      "rca_settings": {
+        "title": "RCA settings",
+        "data": {
+          "enable_rca": "Enable RCA checks",
+          "rca_api_url": "RCA API URL",
+          "rca_username": "RCA API username",
+          "rca_password": "RCA API password"
         }
       },
       "add_car": {
@@ -61,7 +76,8 @@
       }
     },
     "error": {
-      "duplicate_car": "This VIN already exists in the fleet."
+      "duplicate_car": "This VIN already exists in the fleet.",
+      "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password."
     }
   }
 }

@@ -13,13 +13,23 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import ErovinietaApiClient
-from .const import CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_VIN, CONF_YEAR
-from .helpers import get_cars_for_entry
+from .api import ErovinietaApiClient, RcaApiClient
+from .const import (
+    CONF_ENABLE_RCA,
+    CONF_MAKE,
+    CONF_MODEL,
+    CONF_RCA_API_URL,
+    CONF_RCA_PASSWORD,
+    CONF_RCA_USERNAME,
+    CONF_REGISTRATION_NUMBER,
+    CONF_VIN,
+    CONF_YEAR,
+)
+from .helpers import get_cars_for_entry, get_rca_settings_for_entry
 
 _LOGGER = logging.getLogger(__name__)
 
-UPDATE_INTERVAL = timedelta(hours=12)
+UPDATE_INTERVAL = timedelta(days=1)
 
 
 class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
@@ -30,6 +40,19 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.config_entry = entry
         self.cars = get_cars_for_entry(entry)
         self._api = ErovinietaApiClient(async_get_clientsession(hass))
+        self._rca_settings = get_rca_settings_for_entry(entry)
+        self._rca_client: RcaApiClient | None = None
+        if self._rca_settings.get(CONF_ENABLE_RCA):
+            api_url = self._rca_settings.get(CONF_RCA_API_URL) or ""
+            username = self._rca_settings.get(CONF_RCA_USERNAME) or ""
+            password = self._rca_settings.get(CONF_RCA_PASSWORD) or ""
+            if api_url and username and password:
+                self._rca_client = RcaApiClient(
+                    async_get_clientsession(hass),
+                    api_url=api_url,
+                    username=username,
+                    password=password,
+                )
 
         super().__init__(
             hass,
@@ -71,9 +94,18 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         vin = str(car[CONF_VIN]).upper()
         plate = str(car[CONF_REGISTRATION_NUMBER]).upper()
 
-        vignette_data = await self._api.async_fetch_vignette(plate_number=plate, vin=vin)
+        vignette_task = self._api.async_fetch_vignette(plate_number=plate, vin=vin)
+        rca_task = self._rca_client.async_check(plate=plate) if self._rca_client else None
 
-        return {
+        if rca_task is not None:
+            vignette_data, rca_data = await asyncio.gather(
+                vignette_task, rca_task, return_exceptions=False
+            )
+        else:
+            vignette_data = await vignette_task
+            rca_data = None
+
+        payload: dict[str, Any] = {
             CONF_NAME: car[CONF_NAME],
             CONF_MAKE: car[CONF_MAKE],
             CONF_MODEL: car[CONF_MODEL],
@@ -84,3 +116,31 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "vignetteExpiryDate": vignette_data["vignetteExpiryDate"],
             "dataStop": vignette_data.get("dataStop"),
         }
+
+        if isinstance(rca_data, dict):
+            payload.update(
+                {
+                    "rcaQueryDate": rca_data.get("query_date"),
+                    "rcaPlateNumber": rca_data.get("plate_number"),
+                    "rcaIsValid": rca_data.get("is_valid"),
+                    "rcaValidityStartDate": rca_data.get("validity_start_date"),
+                    "rcaValidityEndDate": rca_data.get("validity_end_date"),
+                }
+            )
+        else:
+            payload.update(
+                {
+                    "rcaQueryDate": None,
+                    "rcaPlateNumber": None,
+                    "rcaIsValid": None,
+                    "rcaValidityStartDate": None,
+                    "rcaValidityEndDate": None,
+                }
+            )
+
+        return payload
+
+    @property
+    def rca_enabled(self) -> bool:
+        """Return if RCA is enabled and configured."""
+        return self._rca_client is not None

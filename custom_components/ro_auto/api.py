@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from aiohttp import ClientError, ClientResponseError, ClientSession
 
 API_URL = "https://www.erovinieta.ro/vgncheck/api/findVignettes"
+CACHE_BUSTER_PARAM = "cacheBuster"
 
 
 def normalize_vignette_payload(data: Any) -> dict[str, Any]:
@@ -51,16 +54,24 @@ class ErovinietaApiClient:
         vin: str,
     ) -> dict[str, Any]:
         """Fetch vignette details for one car."""
+        cache_buster = f"{int(datetime.now(tz=UTC).timestamp() * 1000)}-{uuid4().hex}"
         params = {
             "plateNumber": plate_number.strip().upper(),
             "vin": vin.strip().upper(),
-            # timestamp in milliseconds for cache busting
-            "t": str(int(datetime.now(tz=UTC).timestamp() * 1000)),
+            CACHE_BUSTER_PARAM: cache_buster,
+        }
+        headers = {
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
         }
 
         try:
             async with asyncio.timeout(20):
-                async with self._session.get(API_URL, params=params) as response:
+                async with self._session.get(
+                    API_URL,
+                    params=params,
+                    headers=headers,
+                ) as response:
                     response.raise_for_status()
                     payload = await response.json(content_type=None)
         except TimeoutError as err:
@@ -73,3 +84,56 @@ class ErovinietaApiClient:
             raise RuntimeError("Failed to parse erovinieta API response") from err
 
         return normalize_vignette_payload(payload)
+
+
+class RcaApiClient:
+    """Async client for a private RCA API."""
+
+    def __init__(self, session: ClientSession, *, api_url: str, username: str, password: str) -> None:
+        """Initialize the RCA client."""
+        self._session = session
+        self._api_url = api_url.rstrip("/")
+        self._username = username
+        self._password = password
+
+    def _endpoint(self) -> str:
+        """Return the check endpoint URL."""
+        if self._api_url.endswith("/rca/check"):
+            return self._api_url
+        return f"{self._api_url}/rca/check"
+
+    def _auth_header(self) -> str:
+        token = base64.b64encode(f"{self._username}:{self._password}".encode("utf-8")).decode(
+            "ascii"
+        )
+        return f"Basic {token}"
+
+    async def async_check(self, *, plate: str) -> dict[str, Any]:
+        """Check RCA status for a plate."""
+        headers = {
+            "Authorization": self._auth_header(),
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        body = {"plate": plate.strip().upper()}
+
+        try:
+            async with asyncio.timeout(60):
+                async with self._session.post(
+                    self._endpoint(),
+                    json=body,
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    payload = await response.json(content_type=None)
+        except TimeoutError as err:
+            raise RuntimeError("Timed out while calling RCA API") from err
+        except ClientResponseError as err:
+            raise RuntimeError(f"RCA API returned {err.status} for {plate}") from err
+        except (ClientError, ValueError) as err:
+            raise RuntimeError("Failed to parse RCA API response") from err
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("Unexpected RCA API response shape")
+
+        return payload

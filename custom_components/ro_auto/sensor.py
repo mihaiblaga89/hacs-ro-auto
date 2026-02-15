@@ -9,6 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -30,10 +31,25 @@ async def async_setup_entry(
 ) -> None:
     """Set up RO Auto sensors from a config entry."""
     coordinator: RoAutoCoordinator = hass.data[DOMAIN][entry.entry_id]
+
+    # If RCA is disabled/unconfigured, remove any old RCA entities that may have
+    # been created when RCA was previously enabled.
+    if not coordinator.rca_enabled:
+        registry = er.async_get(hass)
+        for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if entity_entry.platform != DOMAIN:
+                continue
+            unique_id = entity_entry.unique_id or ""
+            if unique_id.endswith("_rca") or unique_id.endswith("_rca_expiry_date"):
+                registry.async_remove(entity_entry.entity_id)
+
     entities: list[SensorEntity] = []
     for car in coordinator.cars:
         entities.append(RoAutoCarVignetteStatusSensor(coordinator, entry, car))
         entities.append(RoAutoCarVignetteExpirySensor(coordinator, entry, car))
+        if coordinator.rca_enabled:
+            entities.append(RoAutoCarRcaStatusSensor(coordinator, entry, car))
+            entities.append(RoAutoCarRcaExpirySensor(coordinator, entry, car))
     async_add_entities(entities)
 
 
@@ -80,6 +96,11 @@ class RoAutoCarBaseSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
             "nrAuto": car_data.get(CONF_REGISTRATION_NUMBER, self._registration_number),
             "serieSasiu": car_data.get(CONF_VIN, self._vin),
             "dataStop": car_data.get("dataStop"),
+            "rcaQueryDate": car_data.get("rcaQueryDate"),
+            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
+            "rcaIsValid": car_data.get("rcaIsValid"),
+            "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
+            "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
         }
 
 
@@ -136,4 +157,60 @@ class RoAutoCarVignetteExpirySensor(RoAutoCarBaseSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return full car and vignette details."""
+        return self._common_attributes()
+
+
+class RoAutoCarRcaStatusSensor(RoAutoCarBaseSensor):
+    """Sensor exposing RCA validity status."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the RCA status sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca"
+        self._attr_name = "rca"
+        self._attr_icon = "mdi:shield-car"
+
+    @property
+    def native_value(self) -> str:
+        """Return current RCA status."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        valid = car_data.get("rcaIsValid")
+        if valid is True:
+            return "valid"
+        if valid is False:
+            return "invalid"
+        return "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full car and RCA details."""
+        return self._common_attributes()
+
+
+class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
+    """Sensor exposing RCA validity end date."""
+
+    def __init__(
+        self, coordinator: RoAutoCoordinator, entry: ConfigEntry, car: dict[str, Any]
+    ) -> None:
+        """Initialize the RCA expiry sensor."""
+        super().__init__(coordinator, entry, car)
+        self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca_expiry_date"
+        self._attr_name = "rca expiry date"
+        self._attr_icon = "mdi:calendar-shield"
+
+    @property
+    def native_value(self) -> str | None:
+        """Return RCA validity end date as provided by API."""
+        car_data = self.coordinator.data.get(self._vin, {})
+        end_date = car_data.get("rcaValidityEndDate")
+        if not end_date:
+            return None
+        return str(end_date)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full car and RCA details."""
         return self._common_attributes()
