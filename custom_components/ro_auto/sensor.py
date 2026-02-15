@@ -9,19 +9,14 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import \
+    AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (
-    CONF_MAKE,
-    CONF_MODEL,
-    CONF_REGISTRATION_NUMBER,
-    CONF_VIN,
-    CONF_YEAR,
-    DOMAIN,
-)
+from .const import (CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_VIN,
+                    CONF_YEAR, DOMAIN)
 from .coordinator import RoAutoCoordinator
 
 
@@ -120,14 +115,14 @@ class RoAutoCarBaseSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
             ),
             "vignetteValid": car_data.get("vignetteValid"),
             "vignetteExpiryDate": car_data.get("vignetteExpiryDate"),
-            "nrAuto": car_data.get(CONF_REGISTRATION_NUMBER, self._registration_number),
-            "serieSasiu": car_data.get(CONF_VIN, self._vin),
+            "vignetteLastUpdate": car_data.get("vignetteLastUpdate"),
             "dataStop": car_data.get("dataStop"),
             "rcaQueryDate": car_data.get("rcaQueryDate"),
-            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
             "rcaIsValid": car_data.get("rcaIsValid"),
             "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
             "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
+            "rcaLastUpdate": car_data.get("rcaLastUpdate"),
+            "lastUpdate": car_data.get("lastUpdate"),
         }
 
 
