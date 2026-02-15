@@ -261,7 +261,6 @@ class RoAutoCarRcaStatusSensor(RoAutoCarBaseSensor):
         car_data = self.coordinator.data.get(self._vin, {})
         return {
             "rcaQueryDate": car_data.get("rcaQueryDate"),
-            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
             "rcaIsValid": car_data.get("rcaIsValid"),
             "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
             "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
@@ -295,7 +294,6 @@ class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
         return {
             **self._car_attributes_for_expiry(),
             "rcaQueryDate": car_data.get("rcaQueryDate"),
-            "rcaPlateNumber": car_data.get("rcaPlateNumber"),
             "rcaIsValid": car_data.get("rcaIsValid"),
             "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
             "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
