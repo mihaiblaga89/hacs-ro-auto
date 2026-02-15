@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -22,6 +23,32 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import RoAutoCoordinator
+
+
+def _parse_date(value: Any) -> datetime.date | None:
+    """Parse a date-only value from API payloads."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+        # Covers datetime.date without importing date explicitly.
+        try:
+            return value  # type: ignore[return-value]
+        except TypeError:
+            pass
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    # RCA API sample: "23.10.2026"
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 async def async_setup_entry(
@@ -144,15 +171,13 @@ class RoAutoCarVignetteExpirySensor(RoAutoCarBaseSensor):
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_vignette_expiry_date"
         self._attr_name = "vignette expiry date"
         self._attr_icon = "mdi:calendar-clock"
+        self._attr_device_class = SensorDeviceClass.DATE
 
     @property
-    def native_value(self) -> str | None:
-        """Return vignette expiry date as provided by API."""
+    def native_value(self) -> datetime.date | None:
+        """Return vignette expiry date (date-only)."""
         car_data = self.coordinator.data.get(self._vin, {})
-        expiry_date = car_data.get("vignetteExpiryDate")
-        if not expiry_date:
-            return None
-        return str(expiry_date)
+        return _parse_date(car_data.get("vignetteExpiryDate"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -199,16 +224,14 @@ class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
         super().__init__(coordinator, entry, car)
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca_expiry_date"
         self._attr_name = "rca expiry date"
-        self._attr_icon = "mdi:calendar-shield"
+        self._attr_icon = "mdi:calendar-check"
+        self._attr_device_class = SensorDeviceClass.DATE
 
     @property
-    def native_value(self) -> str | None:
-        """Return RCA validity end date as provided by API."""
+    def native_value(self) -> datetime.date | None:
+        """Return RCA validity end date (date-only)."""
         car_data = self.coordinator.data.get(self._vin, {})
-        end_date = car_data.get("rcaValidityEndDate")
-        if not end_date:
-            return None
-        return str(end_date)
+        return _parse_date(car_data.get("rcaValidityEndDate"))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
