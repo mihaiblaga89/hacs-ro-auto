@@ -51,7 +51,9 @@
           "add_car": "Add a car",
           "remove_car": "Remove a car",
           "rca_settings": "RCA settings",
-          "itp_settings": "ITP settings"
+          "itp_settings": "ITP settings",
+          "trigger_rca_refresh": "Trigger RCA API call now",
+          "trigger_itp_refresh": "Trigger ITP API call now"
         }
       },
       "rca_settings": {
@@ -60,8 +62,7 @@
           "enable_rca": "Enable RCA checks",
           "rca_api_url": "RCA API URL",
           "rca_username": "RCA API username",
-          "rca_password": "RCA API password",
-          "trigger_rca_refresh": "Trigger RCA API call now"
+          "rca_password": "RCA API password"
         }
       },
       "itp_settings": {
@@ -70,8 +71,7 @@
           "enable_itp": "Enable ITP checks",
           "itp_api_url": "ITP API URL",
           "itp_username": "ITP API username",
-          "itp_password": "ITP API password",
-          "trigger_itp_refresh": "Trigger ITP API call now"
+          "itp_password": "ITP API password"
         }
       },
       "add_car": {

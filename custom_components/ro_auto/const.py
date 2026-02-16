@@ -21,8 +21,6 @@ CONF_ENABLE_ITP = "enable_itp"
 CONF_ITP_API_URL = "itp_api_url"
 CONF_ITP_USERNAME = "itp_username"
 CONF_ITP_PASSWORD = "itp_password"
-CONF_TRIGGER_RCA_REFRESH = "trigger_rca_refresh"
-CONF_TRIGGER_ITP_REFRESH = "trigger_itp_refresh"
 CONF_VIGNETTE_VALID = "vignetteValid"
 CONF_VIGNETTE_EXPIRY_DATE = "vignetteExpiryDate"
 
