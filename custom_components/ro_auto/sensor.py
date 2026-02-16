@@ -246,7 +246,7 @@ class RoAutoCarRcaExpirySensor(RoAutoCarBaseSensor):
         super().__init__(coordinator, entry, car)
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca_expiry_date"
         self._attr_name = "rca expiry date"
-        self._attr_icon = "mdi:calendar-check"
+        self._attr_icon = "mdi:calendar-clock"
         self._attr_device_class = SensorDeviceClass.DATE
 
     @property
@@ -317,7 +317,7 @@ class RoAutoCarItpExpirySensor(RoAutoCarBaseSensor):
         super().__init__(coordinator, entry, car)
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_itp_expiry_date"
         self._attr_name = "itp expiry date"
-        self._attr_icon = "mdi:calendar-check"
+        self._attr_icon = "mdi:calendar-clock"
         self._attr_device_class = SensorDeviceClass.DATE
 
     @property
