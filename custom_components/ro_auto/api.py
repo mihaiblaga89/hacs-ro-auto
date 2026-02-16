@@ -12,6 +12,7 @@ from aiohttp import ClientError, ClientResponseError, ClientSession
 
 API_URL = "https://www.erovinieta.ro/vgncheck/api/findVignettes"
 CACHE_BUSTER_PARAM = "cacheBuster"
+DEFAULT_TIMEOUT_SECONDS = 240
 
 
 def normalize_vignette_payload(data: Any) -> dict[str, Any]:
@@ -66,7 +67,7 @@ class ErovinietaApiClient:
         }
 
         try:
-            async with asyncio.timeout(20):
+            async with asyncio.timeout(DEFAULT_TIMEOUT_SECONDS):
                 async with self._session.get(
                     API_URL,
                     params=params,
@@ -108,7 +109,7 @@ class RcaApiClient:
             username=self._username,
             password=self._password,
             body=body,
-            timeout_seconds=60,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
             error_prefix="RCA",
             context_id=plate,
         )
@@ -138,7 +139,7 @@ class ItpApiClient:
             username=self._username,
             password=self._password,
             body=body,
-            timeout_seconds=60,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
             error_prefix="ITP",
             context_id=vin,
         )
