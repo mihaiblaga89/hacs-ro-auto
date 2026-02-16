@@ -118,6 +118,36 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.async_set_updated_data(cached_data)
         return True
 
+    def cache_needs_initial_refresh(self) -> bool:
+        """Return True if enabled subsystems have no data yet.
+
+        Used to force an initial refresh after enabling RCA/ITP even if the cache is fresh.
+        """
+        if not isinstance(self.data, dict) or not self.data:
+            return True
+
+        for car in self.cars:
+            vin = str(car[CONF_VIN]).upper()
+            car_data = self.data.get(vin, {})
+            if not isinstance(car_data, dict):
+                return True
+
+            # If we have never successfully fetched vignette data, refresh.
+            if car_data.get("vignetteLastUpdate") is None and not car_data.get("vignetteError"):
+                return True
+
+            # If RCA is enabled, refresh until we have either data or an error recorded.
+            if self._rca_client is not None:
+                if car_data.get("rcaLastUpdate") is None and not car_data.get("rcaError"):
+                    return True
+
+            # If ITP is enabled, refresh until we have either data or an error recorded.
+            if self._itp_client is not None:
+                if car_data.get("itpLastUpdate") is None and not car_data.get("itpError"):
+                    return True
+
+        return False
+
     async def _async_save_cache(self, data: dict[str, dict[str, Any]]) -> None:
         """Persist cached data to Home Assistant storage."""
         try:

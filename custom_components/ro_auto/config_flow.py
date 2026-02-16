@@ -274,6 +274,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 title="",
                 data={
+                    **self._config_entry.options,
                     CONF_ENABLE_ITP: enable_itp,
                     CONF_ITP_API_URL: api_url,
                     CONF_ITP_USERNAME: username,
@@ -329,6 +330,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
             return self.async_create_entry(
                 title="",
                 data={
+                    **self._config_entry.options,
                     CONF_ENABLE_RCA: enable_rca,
                     CONF_RCA_API_URL: api_url,
                     CONF_RCA_USERNAME: username,
@@ -372,7 +374,10 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "duplicate_car"
             else:
                 cars.append(car)
-                return self.async_create_entry(title="", data={CONF_CARS: cars})
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, CONF_CARS: cars},
+                )
 
         return self.async_show_form(
             step_id="add_car",
@@ -396,7 +401,10 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             selected_vin = str(user_input[CONF_ACTION])
             new_cars = [car for car in cars if car[CONF_VIN] != selected_vin]
-            return self.async_create_entry(title="", data={CONF_CARS: new_cars})
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, CONF_CARS: new_cars},
+            )
 
         return self.async_show_form(
             step_id="remove_car",
