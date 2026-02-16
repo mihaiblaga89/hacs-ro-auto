@@ -51,7 +51,9 @@
           "add_car": "Add a car",
           "remove_car": "Remove a car",
           "rca_settings": "RCA settings",
-          "itp_settings": "ITP settings"
+          "itp_settings": "ITP settings",
+          "trigger_rca_refresh": "Trigger RCA API call now",
+          "trigger_itp_refresh": "Trigger ITP API call now"
         }
       },
       "rca_settings": {
