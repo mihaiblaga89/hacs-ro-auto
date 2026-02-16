@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,6 +39,8 @@ from .const import (
     CONF_RCA_PASSWORD,
     CONF_RCA_USERNAME,
     CONF_REGISTRATION_NUMBER,
+    CONF_TRIGGER_ITP_REFRESH,
+    CONF_TRIGGER_RCA_REFRESH,
     CONF_VIN,
     CONF_YEAR,
     DEFAULT_NAME,
@@ -47,6 +50,8 @@ from .helpers import get_cars_for_entry
 
 ACTIONS_ADD_CAR = "add_car"
 ACTIONS_REMOVE_CAR = "remove_car"
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _year_max() -> int:
@@ -253,6 +258,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Configure ITP settings from options flow."""
         if user_input is not None:
+            trigger_refresh = bool(user_input.get(CONF_TRIGGER_ITP_REFRESH, False))
             current = self._config_entry.options | self._config_entry.data
             enable_itp = bool(user_input.get(CONF_ENABLE_ITP, current.get(CONF_ENABLE_ITP, False)))
             api_url = str(user_input.get(CONF_ITP_API_URL, current.get(CONF_ITP_API_URL, "")) or "").strip()
@@ -270,6 +276,9 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
                     data_schema=self._itp_schema(),
                     errors=errors,
                 )
+
+            if trigger_refresh:
+                await self._async_trigger_manual_refresh(source="ITP")
 
             return self.async_create_entry(
                 title="",
@@ -300,6 +309,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
                     TextSelectorConfig(type="text")
                 ),
                 vol.Optional(CONF_ITP_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+                vol.Optional(CONF_TRIGGER_ITP_REFRESH, default=False): BooleanSelector(),
             }
         )
 
@@ -308,6 +318,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Configure RCA settings from options flow."""
         if user_input is not None:
+            trigger_refresh = bool(user_input.get(CONF_TRIGGER_RCA_REFRESH, False))
             current = self._config_entry.options | self._config_entry.data
             enable_rca = bool(user_input.get(CONF_ENABLE_RCA, current.get(CONF_ENABLE_RCA, False)))
             api_url = str(user_input.get(CONF_RCA_API_URL, current.get(CONF_RCA_API_URL, "")) or "").strip()
@@ -326,6 +337,9 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
                     data_schema=self._rca_schema(),
                     errors=errors,
                 )
+
+            if trigger_refresh:
+                await self._async_trigger_manual_refresh(source="RCA")
 
             return self.async_create_entry(
                 title="",
@@ -357,8 +371,18 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
                 ),
                 # We cannot safely show the existing password; user can re-enter to change it.
                 vol.Optional(CONF_RCA_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+                vol.Optional(CONF_TRIGGER_RCA_REFRESH, default=False): BooleanSelector(),
             }
         )
+
+    async def _async_trigger_manual_refresh(self, *, source: str) -> None:
+        """Trigger a manual refresh for the existing coordinator."""
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._config_entry.entry_id)
+        if coordinator is None:
+            _LOGGER.warning("Manual %s refresh requested, but coordinator was not found", source)
+            return
+
+        await coordinator.async_request_refresh()
 
     async def async_step_add_car(
         self, user_input: dict[str, Any] | None = None
