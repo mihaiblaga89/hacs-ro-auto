@@ -132,18 +132,19 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             if not isinstance(car_data, dict):
                 return True
 
-            # If we have never successfully fetched vignette data, refresh.
-            if car_data.get("vignetteLastUpdate") is None and not car_data.get("vignetteError"):
+            # Treat "unknown" sensor values as needing an initial refresh.
+            # (Unknown is represented by None + no error recorded.)
+            if car_data.get("vignetteValid") is None and not car_data.get("vignetteError"):
                 return True
 
             # If RCA is enabled, refresh until we have either data or an error recorded.
             if self._rca_client is not None:
-                if car_data.get("rcaLastUpdate") is None and not car_data.get("rcaError"):
+                if car_data.get("rcaIsValid") is None and not car_data.get("rcaError"):
                     return True
 
             # If ITP is enabled, refresh until we have either data or an error recorded.
             if self._itp_client is not None:
-                if car_data.get("itpLastUpdate") is None and not car_data.get("itpError"):
+                if car_data.get("itpIsValid") is None and not car_data.get("itpError"):
                     return True
 
         return False
