@@ -257,116 +257,100 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Configure ITP settings from options flow."""
-        if user_input is not None:
-            current = self._config_entry.options | self._config_entry.data
-            enable_itp = bool(user_input.get(CONF_ENABLE_ITP, current.get(CONF_ENABLE_ITP, False)))
-            api_url = str(user_input.get(CONF_ITP_API_URL, current.get(CONF_ITP_API_URL, "")) or "").strip()
-            username = str(user_input.get(CONF_ITP_USERNAME, current.get(CONF_ITP_USERNAME, "")) or "").strip()
-            password = str(user_input.get(CONF_ITP_PASSWORD, "") or "").strip() or str(
-                current.get(CONF_ITP_PASSWORD, "") or ""
-            )
-
-            errors: dict[str, str] = {}
-            if enable_itp and (not api_url or not username or not password):
-                errors["base"] = "missing_itp_settings"
-            if errors:
-                return self.async_show_form(
-                    step_id="itp_settings",
-                    data_schema=self._itp_schema(),
-                    errors=errors,
-                )
-
-
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self._config_entry.options,
-                    CONF_ENABLE_ITP: enable_itp,
-                    CONF_ITP_API_URL: api_url,
-                    CONF_ITP_USERNAME: username,
-                    CONF_ITP_PASSWORD: password,
-                },
-            )
-
-        return self.async_show_form(
+        return await self._async_step_api_settings(
             step_id="itp_settings",
-            data_schema=self._itp_schema(),
-        )
-
-    def _itp_schema(self) -> vol.Schema:
-        """ITP settings schema."""
-        current = self._config_entry.options | self._config_entry.data
-        return vol.Schema(
-            {
-                vol.Optional(CONF_ENABLE_ITP, default=bool(current.get(CONF_ENABLE_ITP, False))): BooleanSelector(),
-                vol.Optional(CONF_ITP_API_URL, default=str(current.get(CONF_ITP_API_URL, "") or "")): TextSelector(
-                    TextSelectorConfig(type="text")
-                ),
-                vol.Optional(CONF_ITP_USERNAME, default=str(current.get(CONF_ITP_USERNAME, "") or "")): TextSelector(
-                    TextSelectorConfig(type="text")
-                ),
-                vol.Optional(CONF_ITP_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
-            }
+            user_input=user_input,
+            enable_key=CONF_ENABLE_ITP,
+            url_key=CONF_ITP_API_URL,
+            username_key=CONF_ITP_USERNAME,
+            password_key=CONF_ITP_PASSWORD,
+            missing_error="missing_itp_settings",
         )
 
     async def async_step_rca_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Configure RCA settings from options flow."""
-        if user_input is not None:
-            current = self._config_entry.options | self._config_entry.data
-            enable_rca = bool(user_input.get(CONF_ENABLE_RCA, current.get(CONF_ENABLE_RCA, False)))
-            api_url = str(user_input.get(CONF_RCA_API_URL, current.get(CONF_RCA_API_URL, "")) or "").strip()
-            username = str(user_input.get(CONF_RCA_USERNAME, current.get(CONF_RCA_USERNAME, "")) or "").strip()
-            # If empty, keep the existing password.
-            password = str(user_input.get(CONF_RCA_PASSWORD, "") or "").strip() or str(
-                current.get(CONF_RCA_PASSWORD, "") or ""
-            )
-
-            errors: dict[str, str] = {}
-            if enable_rca and (not api_url or not username or not password):
-                errors["base"] = "missing_rca_settings"
-            if errors:
-                return self.async_show_form(
-                    step_id="rca_settings",
-                    data_schema=self._rca_schema(),
-                    errors=errors,
-                )
-
-
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self._config_entry.options,
-                    CONF_ENABLE_RCA: enable_rca,
-                    CONF_RCA_API_URL: api_url,
-                    CONF_RCA_USERNAME: username,
-                    CONF_RCA_PASSWORD: password,
-                },
-            )
-
-        return self.async_show_form(
+        return await self._async_step_api_settings(
             step_id="rca_settings",
-            data_schema=self._rca_schema(),
+            user_input=user_input,
+            enable_key=CONF_ENABLE_RCA,
+            url_key=CONF_RCA_API_URL,
+            username_key=CONF_RCA_USERNAME,
+            password_key=CONF_RCA_PASSWORD,
+            missing_error="missing_rca_settings",
         )
 
-    def _rca_schema(self) -> vol.Schema:
-        """RCA settings schema."""
+    async def _async_step_api_settings(
+        self,
+        *,
+        step_id: str,
+        user_input: dict[str, Any] | None,
+        enable_key: str,
+        url_key: str,
+        username_key: str,
+        password_key: str,
+        missing_error: str,
+    ) -> config_entries.ConfigFlowResult:
+        """Generic API settings handler for options flow (RCA/ITP)."""
+        schema = self._api_settings_schema(
+            enable_key=enable_key,
+            url_key=url_key,
+            username_key=username_key,
+            password_key=password_key,
+        )
+
+        if user_input is None:
+            return self.async_show_form(step_id=step_id, data_schema=schema)
+
+        current = self._config_entry.options | self._config_entry.data
+        enabled = bool(user_input.get(enable_key, current.get(enable_key, False)))
+        api_url = str(user_input.get(url_key, current.get(url_key, "")) or "").strip()
+        username = str(user_input.get(username_key, current.get(username_key, "")) or "").strip()
+        password = str(user_input.get(password_key, "") or "").strip() or str(
+            current.get(password_key, "") or ""
+        )
+
+        errors: dict[str, str] = {}
+        if enabled and (not api_url or not username or not password):
+            errors["base"] = missing_error
+        if errors:
+            return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
+
+        return self.async_create_entry(
+            title="",
+            data={
+                **self._config_entry.options,
+                enable_key: enabled,
+                url_key: api_url,
+                username_key: username,
+                password_key: password,
+            },
+        )
+
+    def _api_settings_schema(
+        self,
+        *,
+        enable_key: str,
+        url_key: str,
+        username_key: str,
+        password_key: str,
+    ) -> vol.Schema:
+        """Build a schema for a Basic-auth API settings step."""
         current = self._config_entry.options | self._config_entry.data
         return vol.Schema(
             {
-                vol.Optional(CONF_ENABLE_RCA, default=bool(current.get(CONF_ENABLE_RCA, False))): BooleanSelector(),
-                vol.Optional(CONF_RCA_API_URL, default=str(current.get(CONF_RCA_API_URL, "") or "")): TextSelector(
+                vol.Optional(enable_key, default=bool(current.get(enable_key, False))): BooleanSelector(),
+                vol.Optional(url_key, default=str(current.get(url_key, "") or "")): TextSelector(
                     TextSelectorConfig(type="text")
                 ),
-                vol.Optional(CONF_RCA_USERNAME, default=str(current.get(CONF_RCA_USERNAME, "") or "")): TextSelector(
+                vol.Optional(username_key, default=str(current.get(username_key, "") or "")): TextSelector(
                     TextSelectorConfig(type="text")
                 ),
                 # We cannot safely show the existing password; user can re-enter to change it.
-                vol.Optional(CONF_RCA_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
+                vol.Optional(password_key): TextSelector(TextSelectorConfig(type="password")),
             }
         )
-
 
     async def async_step_trigger_rca_refresh(
         self, user_input: dict[str, Any] | None = None
@@ -389,7 +373,14 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
             _LOGGER.warning("Manual %s refresh requested, but coordinator was not found", source)
             return
 
-        await coordinator.async_request_refresh()
+        if source == "RCA":
+            await coordinator.async_manual_refresh_rca()
+            return
+        if source == "ITP":
+            await coordinator.async_manual_refresh_itp()
+            return
+
+        _LOGGER.warning("Unknown manual refresh source: %s", source)
 
     async def async_step_add_car(
         self, user_input: dict[str, Any] | None = None

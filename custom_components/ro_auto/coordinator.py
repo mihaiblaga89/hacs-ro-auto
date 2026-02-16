@@ -246,6 +246,189 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             notification_id=notification_id,
         )
 
+    def _apply_vignette_result(
+        self,
+        car_data: dict[str, Any],
+        result: Any,
+        *,
+        now: str,
+        car_name: str,
+        plate: str,
+        context: str,
+    ) -> None:
+        """Apply vignette result to a car payload."""
+        if result is None:
+            return
+
+        if isinstance(result, Exception):
+            _LOGGER.warning(
+                "%s vignette refresh failed for %s (%s)",
+                context,
+                car_name,
+                plate,
+                exc_info=result,
+            )
+            car_data["vignetteError"] = str(result)
+            return
+
+        car_data.update(
+            {
+                "vignetteValid": result.get("vignetteValid"),
+                "vignetteExpiryDate": result.get("vignetteExpiryDate"),
+                "dataStop": result.get("dataStop"),
+                "vignetteLastUpdate": now,
+                "vignetteError": None,
+                "lastUpdate": now,
+            }
+        )
+
+    def _apply_rca_result(
+        self,
+        car_data: dict[str, Any],
+        result: Any,
+        *,
+        now: str,
+        car_name: str,
+        plate: str,
+        context: str,
+    ) -> None:
+        """Apply RCA result to a car payload."""
+        if result is None:
+            return
+
+        if isinstance(result, Exception):
+            _LOGGER.warning(
+                "%s RCA refresh failed for %s (%s)",
+                context,
+                car_name,
+                plate,
+                exc_info=result,
+            )
+            car_data["rcaError"] = str(result)
+            return
+
+        car_data.update(
+            {
+                "rcaQueryDate": result.get("query_date"),
+                "rcaIsValid": result.get("is_valid"),
+                "rcaValidityStartDate": result.get("validity_start_date"),
+                "rcaValidityEndDate": result.get("validity_end_date"),
+                "rcaLastUpdate": now,
+                "rcaError": None,
+                "lastUpdate": now,
+            }
+        )
+
+    def _apply_itp_result(
+        self,
+        car_data: dict[str, Any],
+        result: Any,
+        *,
+        now: str,
+        car_name: str,
+        vin: str,
+        context: str,
+    ) -> None:
+        """Apply ITP result to a car payload."""
+        if result is None:
+            return
+
+        if isinstance(result, Exception):
+            _LOGGER.warning(
+                "%s ITP refresh failed for %s (%s)",
+                context,
+                car_name,
+                vin,
+                exc_info=result,
+            )
+            car_data["itpError"] = str(result)
+            return
+
+        status = result.get("status")
+        valid_until_raw = result.get("itp_valid_until_raw")
+        is_valid = bool(status == "ok" and valid_until_raw)
+        car_data.update(
+            {
+                "itpStatus": status,
+                "itpAttempts": result.get("attempts"),
+                "itpResultVin": result.get("result_vin"),
+                "itpValidUntilRaw": valid_until_raw,
+                "itpIsValid": is_valid,
+                "itpLastUpdate": now,
+                "itpError": None,
+                "lastUpdate": now,
+            }
+        )
+
+    async def async_manual_refresh_rca(self) -> None:
+        """Refresh RCA only (do not trigger vignette/ITP)."""
+        if self._rca_client is None:
+            _LOGGER.warning("Manual RCA refresh requested but RCA is not enabled/configured")
+            return
+
+        now = datetime.now(tz=UTC).isoformat()
+        tasks: list[asyncio.Future[Any] | asyncio.Task[Any]] = []
+        cars: list[tuple[str, str, str]] = []
+        for car in self.cars:
+            vin = str(car[CONF_VIN]).upper()
+            plate = str(car[CONF_REGISTRATION_NUMBER]).upper()
+            car_name = str(car.get(CONF_NAME, vin))
+            cars.append((vin, plate, car_name))
+            tasks.append(asyncio.create_task(self._rca_client.async_check(plate=plate)))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
+        for (vin, plate, car_name), result in zip(cars, results, strict=True):
+            car_data = {**new_data.get(vin, {})}
+            self._apply_rca_result(
+                car_data,
+                result,
+                now=now,
+                car_name=car_name,
+                plate=plate,
+                context="Manual",
+            )
+            new_data[vin] = car_data
+
+        self.async_set_updated_data(new_data)
+        await self._async_handle_failures_notification(new_data)
+        await self._async_save_cache(new_data)
+
+    async def async_manual_refresh_itp(self) -> None:
+        """Refresh ITP only (do not trigger vignette/RCA)."""
+        if self._itp_client is None:
+            _LOGGER.warning("Manual ITP refresh requested but ITP is not enabled/configured")
+            return
+
+        now = datetime.now(tz=UTC).isoformat()
+        tasks: list[asyncio.Future[Any] | asyncio.Task[Any]] = []
+        cars: list[tuple[str, str]] = []
+        for car in self.cars:
+            vin = str(car[CONF_VIN]).upper()
+            car_name = str(car.get(CONF_NAME, vin))
+            cars.append((vin, car_name))
+            tasks.append(asyncio.create_task(self._itp_client.async_check(vin=vin)))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
+        for (vin, car_name), result in zip(cars, results, strict=True):
+            car_data = {**new_data.get(vin, {})}
+            self._apply_itp_result(
+                car_data,
+                result,
+                now=now,
+                car_name=car_name,
+                vin=vin,
+                context="Manual",
+            )
+            new_data[vin] = car_data
+
+        self.async_set_updated_data(new_data)
+        await self._async_handle_failures_notification(new_data)
+        await self._async_save_cache(new_data)
+
     async def _async_build_car_payload(self, car: dict[str, Any]) -> dict[str, Any]:
         """Build one car payload with live vignette/RCA/ITP data.
 
@@ -299,71 +482,31 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "lastUpdate": previous.get("lastUpdate"),
         }
 
-        if isinstance(vignette_result, Exception):
-            _LOGGER.warning(
-                "Vignette refresh failed for %s (%s)",
-                car.get(CONF_NAME, plate),
-                plate,
-                exc_info=vignette_result,
-            )
-            payload["vignetteError"] = str(vignette_result)
-        else:
-            vignette_data = vignette_result
-            payload.update(
-                {
-                    "vignetteValid": vignette_data.get("vignetteValid"),
-                    "vignetteExpiryDate": vignette_data.get("vignetteExpiryDate"),
-                    "dataStop": vignette_data.get("dataStop"),
-                    "vignetteLastUpdate": now,
-                    "vignetteError": None,
-                }
-            )
-            payload["lastUpdate"] = now
-
-        if isinstance(rca_result, Exception):
-            _LOGGER.warning(
-                "RCA refresh failed for %s (%s)",
-                car.get(CONF_NAME, plate),
-                plate,
-                exc_info=rca_result,
-            )
-            payload["rcaError"] = str(rca_result)
-        elif isinstance(rca_result, dict):
-            payload.update(
-                {
-                    "rcaQueryDate": rca_result.get("query_date"),
-                    "rcaIsValid": rca_result.get("is_valid"),
-                    "rcaValidityStartDate": rca_result.get("validity_start_date"),
-                    "rcaValidityEndDate": rca_result.get("validity_end_date"),
-                    "rcaLastUpdate": now,
-                    "rcaError": None,
-                }
-            )
-            payload["lastUpdate"] = now
-
-        if isinstance(itp_result, Exception):
-            _LOGGER.warning(
-                "ITP refresh failed for %s (%s)",
-                car.get(CONF_NAME, vin),
-                vin,
-                exc_info=itp_result,
-            )
-            payload["itpError"] = str(itp_result)
-        elif isinstance(itp_result, dict):
-            status = itp_result.get("status")
-            valid_until_raw = itp_result.get("itp_valid_until_raw")
-            is_valid = bool(status == "ok" and valid_until_raw)
-            payload.update(
-                {
-                    "itpStatus": status,
-                    "itpAttempts": itp_result.get("attempts"),
-                    "itpValidUntilRaw": valid_until_raw,
-                    "itpIsValid": is_valid,
-                    "itpLastUpdate": now,
-                    "itpError": None,
-                }
-            )
-            payload["lastUpdate"] = now
+        car_name = str(car.get(CONF_NAME, vin))
+        self._apply_vignette_result(
+            payload,
+            vignette_result,
+            now=now,
+            car_name=car_name,
+            plate=plate,
+            context="Scheduled",
+        )
+        self._apply_rca_result(
+            payload,
+            rca_result,
+            now=now,
+            car_name=car_name,
+            plate=plate,
+            context="Scheduled",
+        )
+        self._apply_itp_result(
+            payload,
+            itp_result,
+            now=now,
+            car_name=car_name,
+            vin=vin,
+            context="Scheduled",
+        )
 
         return payload
 

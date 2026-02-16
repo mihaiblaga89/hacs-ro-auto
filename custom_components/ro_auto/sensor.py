@@ -115,44 +115,6 @@ class RoAutoCarBaseSensor(CoordinatorEntity[RoAutoCoordinator], SensorEntity):
         """Return if entity is available."""
         return self._vin in self.coordinator.data
 
-    def _common_attributes(self) -> dict[str, Any]:
-        """Return attributes shared by all car sensors."""
-        car_data = self.coordinator.data.get(self._vin, {})
-        return {
-            CONF_NAME: car_data.get(CONF_NAME),
-            CONF_MAKE: car_data.get(CONF_MAKE),
-            CONF_MODEL: car_data.get(CONF_MODEL),
-            CONF_YEAR: car_data.get(CONF_YEAR),
-            CONF_VIN: car_data.get(CONF_VIN, self._vin),
-            CONF_REGISTRATION_NUMBER: car_data.get(
-                CONF_REGISTRATION_NUMBER, self._registration_number
-            ),
-            "vignetteValid": car_data.get("vignetteValid"),
-            "vignetteExpiryDate": car_data.get("vignetteExpiryDate"),
-            "vignetteLastUpdate": car_data.get("vignetteLastUpdate"),
-            "dataStop": car_data.get("dataStop"),
-            "rcaQueryDate": car_data.get("rcaQueryDate"),
-            "rcaIsValid": car_data.get("rcaIsValid"),
-            "rcaValidityStartDate": car_data.get("rcaValidityStartDate"),
-            "rcaValidityEndDate": car_data.get("rcaValidityEndDate"),
-            "rcaLastUpdate": car_data.get("rcaLastUpdate"),
-            "lastUpdate": car_data.get("lastUpdate"),
-        }
-
-    def _car_attributes(self) -> dict[str, Any]:
-        """Return car metadata attributes."""
-        car_data = self.coordinator.data.get(self._vin, {})
-        return {
-            CONF_NAME: car_data.get(CONF_NAME),
-            CONF_MAKE: car_data.get(CONF_MAKE),
-            CONF_MODEL: car_data.get(CONF_MODEL),
-            CONF_YEAR: car_data.get(CONF_YEAR),
-            CONF_VIN: car_data.get(CONF_VIN, self._vin),
-            CONF_REGISTRATION_NUMBER: car_data.get(
-                CONF_REGISTRATION_NUMBER, self._registration_number
-            ),
-        }
-
     def _car_attributes_for_expiry(self) -> dict[str, Any]:
         """Return minimal car attributes for expiry sensors."""
         car_data = self.coordinator.data.get(self._vin, {})

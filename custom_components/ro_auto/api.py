@@ -97,46 +97,21 @@ class RcaApiClient:
         self._password = password
 
     def _endpoint(self) -> str:
-        """Return the check endpoint URL."""
-        if self._api_url.endswith("/rca/check"):
-            return self._api_url
-        return f"{self._api_url}/rca/check"
-
-    def _auth_header(self) -> str:
-        token = base64.b64encode(f"{self._username}:{self._password}".encode("utf-8")).decode(
-            "ascii"
-        )
-        return f"Basic {token}"
+        return _build_endpoint(self._api_url, "/rca/check")
 
     async def async_check(self, *, plate: str) -> dict[str, Any]:
         """Check RCA status for a plate."""
-        headers = {
-            "Authorization": self._auth_header(),
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
         body = {"plate": plate.strip().upper()}
-
-        try:
-            async with asyncio.timeout(60):
-                async with self._session.post(
-                    self._endpoint(),
-                    json=body,
-                    headers=headers,
-                ) as response:
-                    response.raise_for_status()
-                    payload = await response.json(content_type=None)
-        except TimeoutError as err:
-            raise RuntimeError("Timed out while calling RCA API") from err
-        except ClientResponseError as err:
-            raise RuntimeError(f"RCA API returned {err.status} for {plate}") from err
-        except (ClientError, ValueError) as err:
-            raise RuntimeError("Failed to parse RCA API response") from err
-
-        if not isinstance(payload, dict):
-            raise RuntimeError("Unexpected RCA API response shape")
-
-        return payload
+        return await _post_basic_auth_json(
+            self._session,
+            url=self._endpoint(),
+            username=self._username,
+            password=self._password,
+            body=body,
+            timeout_seconds=60,
+            error_prefix="RCA",
+            context_id=plate,
+        )
 
 
 class ItpApiClient:
@@ -152,43 +127,67 @@ class ItpApiClient:
         self._password = password
 
     def _endpoint(self) -> str:
-        """Return the check endpoint URL."""
-        if self._api_url.endswith("/itp/check"):
-            return self._api_url
-        return f"{self._api_url}/itp/check"
-
-    def _auth_header(self) -> str:
-        token = base64.b64encode(f"{self._username}:{self._password}".encode("utf-8")).decode(
-            "ascii"
-        )
-        return f"Basic {token}"
+        return _build_endpoint(self._api_url, "/itp/check")
 
     async def async_check(self, *, vin: str) -> dict[str, Any]:
         """Check ITP status for a VIN."""
-        headers = {
-            "Authorization": self._auth_header(),
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
         body = {"vin": vin.strip().upper()}
+        return await _post_basic_auth_json(
+            self._session,
+            url=self._endpoint(),
+            username=self._username,
+            password=self._password,
+            body=body,
+            timeout_seconds=60,
+            error_prefix="ITP",
+            context_id=vin,
+        )
 
-        try:
-            async with asyncio.timeout(60):
-                async with self._session.post(
-                    self._endpoint(),
-                    json=body,
-                    headers=headers,
-                ) as response:
-                    response.raise_for_status()
-                    payload = await response.json(content_type=None)
-        except TimeoutError as err:
-            raise RuntimeError("Timed out while calling ITP API") from err
-        except ClientResponseError as err:
-            raise RuntimeError(f"ITP API returned {err.status} for {vin}") from err
-        except (ClientError, ValueError) as err:
-            raise RuntimeError("Failed to parse ITP API response") from err
 
-        if not isinstance(payload, dict):
-            raise RuntimeError("Unexpected ITP API response shape")
+def _build_endpoint(api_url: str, suffix: str) -> str:
+    """Return endpoint URL, allowing either base URL or full endpoint URL."""
+    api_url = api_url.rstrip("/")
+    if api_url.endswith(suffix):
+        return api_url
+    return f"{api_url}{suffix}"
 
-        return payload
+
+def _basic_auth_header(username: str, password: str) -> str:
+    token = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {token}"
+
+
+async def _post_basic_auth_json(
+    session: ClientSession,
+    *,
+    url: str,
+    username: str,
+    password: str,
+    body: dict[str, Any],
+    timeout_seconds: int,
+    error_prefix: str,
+    context_id: str,
+) -> dict[str, Any]:
+    """POST JSON with Basic auth and return JSON dict."""
+    headers = {
+        "Authorization": _basic_auth_header(username, password),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            async with session.post(url, json=body, headers=headers) as response:
+                response.raise_for_status()
+                payload = await response.json(content_type=None)
+    except TimeoutError as err:
+        raise RuntimeError(f"Timed out while calling {error_prefix} API") from err
+    except ClientResponseError as err:
+        raise RuntimeError(f"{error_prefix} API returned {err.status} for {context_id}") from err
+    except (ClientError, ValueError) as err:
+        raise RuntimeError(f"Failed to parse {error_prefix} API response") from err
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Unexpected {error_prefix} API response shape")
+
+    return payload
