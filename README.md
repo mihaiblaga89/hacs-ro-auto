@@ -1,5 +1,7 @@
 # RO Auto Home Assistant Integration
 
+**Important: Since only the vignette has a non-captcha API, only that one works out of the box. ITP and RCA need to be enabled separately but you will need to create and host a separate API that will parse the info from RAROM and BAAR**
+
 `RO Auto` is a HACS custom integration that lets you track Romanian vignette status for one or multiple cars.
 
 Each configured car creates one sensor entity in Home Assistant. The sensor exposes:
