@@ -7,7 +7,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN
+from .const import CONF_VEHICLES, DOMAIN, LEGACY_CONF_CARS
 from .coordinator import RoAutoCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
@@ -20,6 +20,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up RO Auto from a config entry."""
+    # Migrate legacy key "cars" -> "vehicles" to keep existing entities provided.
+    if CONF_VEHICLES not in entry.data and LEGACY_CONF_CARS in entry.data:
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_VEHICLES: entry.data[LEGACY_CONF_CARS]},
+        )
+    if CONF_VEHICLES not in entry.options and LEGACY_CONF_CARS in entry.options:
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, CONF_VEHICLES: entry.options[LEGACY_CONF_CARS]},
+        )
+
     coordinator = RoAutoCoordinator(hass, entry)
     await coordinator.async_load_cache()
     await coordinator.async_prime_missing_data()

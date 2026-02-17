@@ -8,7 +8,8 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import (CONF_ENABLE_ITP, CONF_ENABLE_RCA, CONF_ITP_API_URL,
                     CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_RCA_API_URL,
-                    CONF_RCA_PASSWORD, CONF_RCA_USERNAME, CONF_VEHICLES)
+                    CONF_RCA_PASSWORD, CONF_RCA_USERNAME, CONF_VEHICLES,
+                    LEGACY_CONF_CARS)
 
 
 def get_vehicles_for_entry(entry: ConfigEntry) -> list[dict[str, Any]]:
@@ -16,10 +17,16 @@ def get_vehicles_for_entry(entry: ConfigEntry) -> list[dict[str, Any]]:
     options_vehicles = entry.options.get(CONF_VEHICLES)
     if isinstance(options_vehicles, list):
         return options_vehicles
+    legacy_options_cars = entry.options.get(LEGACY_CONF_CARS)
+    if isinstance(legacy_options_cars, list):
+        return legacy_options_cars
 
     data_vehicles = entry.data.get(CONF_VEHICLES)
     if isinstance(data_vehicles, list):
         return data_vehicles
+    legacy_data_cars = entry.data.get(LEGACY_CONF_CARS)
+    if isinstance(legacy_data_cars, list):
+        return legacy_data_cars
 
     return []
 
