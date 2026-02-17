@@ -5,7 +5,7 @@ from __future__ import annotations
 DOMAIN = "ro_auto"
 
 CONF_VEHICLES = "vehicles"
-LEGACY_CONF_CARS = "cars"
+CONF_VIGNETTE_ENABLED = "vignette_enabled"
 CONF_FLEET_NAME = "fleet_name"
 CONF_ADD_ANOTHER = "add_another"
 CONF_ACTION = "action"

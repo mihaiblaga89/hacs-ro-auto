@@ -50,6 +50,7 @@
         "menu_options": {
           "add_vehicle": "Add a vehicle",
           "remove_vehicle": "Remove a vehicle",
+          "vehicle_settings": "Per-vehicle settings (vignette)",
           "rca_settings": "RCA settings",
           "itp_settings": "ITP settings",
           "trigger_rca_refresh": "Trigger RCA API call now",
@@ -85,6 +86,10 @@
           "registrationNumber": "Registration number"
         }
       },
+      "vehicle_settings": {
+        "title": "Vignette check per vehicle",
+        "description": "Enable or disable vignette (Rovinieta) checks for each vehicle. Checked = enabled. Uncheck to skip vignette API calls for that vehicle."
+      },
       "remove_vehicle": {
         "title": "Remove vehicle",
         "data": {
@@ -99,7 +104,8 @@
     },
     "abort": {
       "manual_rca_refresh_triggered": "RCA API call triggered.",
-      "manual_itp_refresh_triggered": "ITP API call triggered."
+      "manual_itp_refresh_triggered": "ITP API call triggered.",
+      "no_vehicles": "No vehicles configured."
     }
   }
 }

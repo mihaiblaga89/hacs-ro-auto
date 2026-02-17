@@ -22,7 +22,8 @@ from .const import (CONF_ACTION, CONF_ADD_ANOTHER, CONF_ENABLE_ITP,
                     CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_MAKE,
                     CONF_MODEL, CONF_RCA_API_URL, CONF_RCA_PASSWORD,
                     CONF_RCA_USERNAME, CONF_REGISTRATION_NUMBER, CONF_VEHICLES,
-                    CONF_VIN, CONF_YEAR, DEFAULT_NAME, DOMAIN)
+                    CONF_VIGNETTE_ENABLED, CONF_VIN, CONF_YEAR, DEFAULT_NAME,
+                    DOMAIN)
 from .helpers import get_vehicles_for_entry
 
 ACTIONS_ADD_VEHICLE = "add_vehicle"
@@ -94,6 +95,7 @@ def _normalize_vehicle(vehicle: dict[str, Any]) -> dict[str, Any]:
         CONF_YEAR: int(vehicle[CONF_YEAR]),
         CONF_VIN: str(vehicle[CONF_VIN]).strip().upper(),
         CONF_REGISTRATION_NUMBER: str(vehicle[CONF_REGISTRATION_NUMBER]).strip().upper(),
+        CONF_VIGNETTE_ENABLED: bool(vehicle.get(CONF_VIGNETTE_ENABLED, True)),
     }
     return normalized
 
@@ -225,6 +227,7 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
         menu_options = [ACTIONS_ADD_VEHICLE]
         if vehicles:
             menu_options.append(ACTIONS_REMOVE_VEHICLE)
+            menu_options.append("vehicle_settings")
         menu_options.append("rca_settings")
         menu_options.append("trigger_rca_refresh")
         menu_options.append("itp_settings")
@@ -384,6 +387,36 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
             step_id="add_vehicle",
             data_schema=_vehicle_schema(include_add_another=False),
             errors=errors,
+        )
+
+    async def async_step_vehicle_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Per-vehicle settings: enable/disable vignette check per vehicle."""
+        vehicles = get_vehicles_for_entry(self._config_entry)
+        if not vehicles:
+            return self.async_abort(reason="no_vehicles")
+
+        if user_input is not None:
+            updated = [
+                {**v, CONF_VIGNETTE_ENABLED: bool(user_input.get(f"vignette_{v[CONF_VIN]}", True))}
+                for v in vehicles
+            ]
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, CONF_VEHICLES: updated},
+            )
+
+        schema = {
+            vol.Optional(
+                f"vignette_{v[CONF_VIN]}",
+                default=bool(v.get(CONF_VIGNETTE_ENABLED, True)),
+            ): BooleanSelector()
+            for v in vehicles
+        }
+        return self.async_show_form(
+            step_id="vehicle_settings",
+            data_schema=vol.Schema(schema),
         )
 
     async def async_step_remove_vehicle(

@@ -20,7 +20,7 @@ from .const import (CONF_ENABLE_ITP, CONF_ENABLE_RCA, CONF_ITP_API_URL,
                     CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_MAKE,
                     CONF_MODEL, CONF_RCA_API_URL, CONF_RCA_PASSWORD,
                     CONF_RCA_USERNAME, CONF_REGISTRATION_NUMBER, CONF_VIN,
-                    CONF_YEAR, DOMAIN)
+                    CONF_VIGNETTE_ENABLED, CONF_YEAR, DOMAIN)
 from .helpers import (get_itp_settings_for_entry, get_rca_settings_for_entry,
                       get_vehicles_for_entry)
 
@@ -118,105 +118,78 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.async_set_updated_data(cached_data)
         return True
 
+    def _build_vehicle_base_payload(self, vehicle: dict[str, Any], vin: str, plate: str) -> dict[str, Any]:
+        """Build base payload for one vehicle from config and optional previous data."""
+        previous = (self.data or {}).get(vin, {})
+        return {
+            CONF_NAME: vehicle.get(CONF_NAME),
+            CONF_MAKE: vehicle.get(CONF_MAKE),
+            CONF_MODEL: vehicle.get(CONF_MODEL),
+            CONF_YEAR: vehicle.get(CONF_YEAR),
+            CONF_VIN: vin,
+            CONF_REGISTRATION_NUMBER: plate,
+            "vignetteValid": previous.get("vignetteValid"),
+            "vignetteExpiryDate": previous.get("vignetteExpiryDate"),
+            "dataStop": previous.get("dataStop"),
+            "vignetteLastUpdate": previous.get("vignetteLastUpdate"),
+            "vignetteError": previous.get("vignetteError"),
+            "rcaQueryDate": previous.get("rcaQueryDate"),
+            "rcaIsValid": previous.get("rcaIsValid"),
+            "rcaValidityStartDate": previous.get("rcaValidityStartDate"),
+            "rcaValidityEndDate": previous.get("rcaValidityEndDate"),
+            "rcaLastUpdate": previous.get("rcaLastUpdate"),
+            "rcaError": previous.get("rcaError"),
+            "itpStatus": previous.get("itpStatus"),
+            "itpAttempts": previous.get("itpAttempts"),
+            "itpValidUntilRaw": previous.get("itpValidUntilRaw"),
+            "itpIsValid": previous.get("itpIsValid"),
+            "itpLastUpdate": previous.get("itpLastUpdate"),
+            "itpError": previous.get("itpError"),
+            "lastUpdate": previous.get("lastUpdate"),
+        }
+
     async def async_prime_missing_data(self) -> bool:
-        """Fetch missing data only (per vehicle + per subsystem).
-
-        This is used on startup/reload and after adding vehicles. It keeps the integration
-        "smart" by only calling the APIs for vehicles/subsystems that are still unknown.
-
-        Returns True if any API call was attempted.
-        """
-        attempted_any = False
+        """Fetch only missing data: one flat async gather for all missing vehicle/subsystem calls."""
         now = datetime.now(tz=UTC).isoformat()
-
-        new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
+        new_data: dict[str, dict[str, Any]] = {}
+        # One task per (vin, plate, vehicle_name, subsystem, coro)
+        flat_tasks: list[tuple[str, str, str, str, Any]] = []
 
         for vehicle in self.vehicles:
             vin = str(vehicle[CONF_VIN]).upper()
             plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
             vehicle_name = str(vehicle.get(CONF_NAME, vin))
-
-            vehicle_data = {**new_data.get(vin, {})}
-
-            # Ensure at least the vehicle metadata exists in the payload.
-            vehicle_data.setdefault(CONF_NAME, vehicle.get(CONF_NAME))
-            vehicle_data.setdefault(CONF_MAKE, vehicle.get(CONF_MAKE))
-            vehicle_data.setdefault(CONF_MODEL, vehicle.get(CONF_MODEL))
-            vehicle_data.setdefault(CONF_YEAR, vehicle.get(CONF_YEAR))
-            vehicle_data.setdefault(CONF_VIN, vin)
-            vehicle_data.setdefault(CONF_REGISTRATION_NUMBER, plate)
-
-            tasks: list[tuple[str, Any]] = []
-
-            # Vignette missing?
-            if vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
-                tasks.append(
-                    (
-                        "vignette",
-                        self._api.async_fetch_vignette(plate_number=plate, vin=vin),
-                    )
-                )
-
-            # RCA missing?
-            if self._rca_client is not None:
-                if vehicle_data.get("rcaIsValid") is None and not vehicle_data.get("rcaError"):
-                    tasks.append(("rca", self._rca_client.async_check(plate=plate)))
-
-            # ITP missing?
-            if self._itp_client is not None:
-                if vehicle_data.get("itpIsValid") is None and not vehicle_data.get("itpError"):
-                    tasks.append(("itp", self._itp_client.async_check(vin=vin)))
-
-            if not tasks:
-                new_data[vin] = vehicle_data
-                continue
-
-            attempted_any = True
-            results = await asyncio.gather(
-                *(task for _, task in tasks),
-                return_exceptions=True,
-            )
-            result_map = dict(zip((key for key, _ in tasks), results, strict=True))
-
-            self._apply_vignette_result(
-                vehicle_data,
-                result_map.get("vignette"),
-                now=now,
-                vehicle_name=vehicle_name,
-                plate=plate,
-                context="Startup",
-            )
-            self._apply_rca_result(
-                vehicle_data,
-                result_map.get("rca"),
-                now=now,
-                vehicle_name=vehicle_name,
-                plate=plate,
-                context="Startup",
-            )
-            self._apply_itp_result(
-                vehicle_data,
-                result_map.get("itp"),
-                now=now,
-                vehicle_name=vehicle_name,
-                vin=vin,
-                context="Startup",
-            )
-
+            vehicle_data = self._build_vehicle_base_payload(vehicle, vin, plate)
             new_data[vin] = vehicle_data
 
-        if attempted_any:
-            self.async_set_updated_data(new_data)
-            await self._async_handle_failures_notification(new_data)
-            await self._async_save_cache(new_data)
+            vignette_enabled = bool(vehicle.get(CONF_VIGNETTE_ENABLED, True))
+            if vignette_enabled and vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
+                flat_tasks.append((vin, plate, vehicle_name, "vignette", self._api.async_fetch_vignette(plate_number=plate, vin=vin)))
+            if self._rca_client is not None and vehicle_data.get("rcaIsValid") is None and not vehicle_data.get("rcaError"):
+                flat_tasks.append((vin, plate, vehicle_name, "rca", self._rca_client.async_check(plate=plate)))
+            if self._itp_client is not None and vehicle_data.get("itpIsValid") is None and not vehicle_data.get("itpError"):
+                flat_tasks.append((vin, plate, vehicle_name, "itp", self._itp_client.async_check(vin=vin)))
 
-        return attempted_any
+        if not flat_tasks:
+            return False
+
+        results = await asyncio.gather(*(t[4] for t in flat_tasks), return_exceptions=True)
+        for (vin, plate, vehicle_name, subsystem, _), result in zip(flat_tasks, results, strict=True):
+            vd = new_data[vin]
+            if subsystem == "vignette":
+                self._apply_vignette_result(vd, result, now=now, vehicle_name=vehicle_name, plate=plate, context="Startup")
+            elif subsystem == "rca":
+                self._apply_rca_result(vd, result, now=now, vehicle_name=vehicle_name, plate=plate, context="Startup")
+            elif subsystem == "itp":
+                self._apply_itp_result(vd, result, now=now, vehicle_name=vehicle_name, vin=vin, context="Startup")
+
+        self.async_set_updated_data(new_data)
+        await self._async_handle_failures_notification(new_data)
+        await self._async_save_cache(new_data)
+        return True
 
     def cache_needs_initial_refresh(self) -> bool:
-        """Return True if enabled subsystems have no data yet.
-
-        Used to force an initial refresh after enabling RCA/ITP even if the cache is fresh.
-        """
+        """Return True if any enabled subsystem for any vehicle has no data yet."""
         if not isinstance(self.data, dict) or not self.data:
             return True
 
@@ -225,8 +198,7 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             vehicle_data = self.data.get(vin, {})
             if not isinstance(vehicle_data, dict):
                 return True
-
-            if vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
+            if bool(vehicle.get(CONF_VIGNETTE_ENABLED, True)) and vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
                 return True
             if self._rca_client is not None and vehicle_data.get("rcaIsValid") is None and not vehicle_data.get("rcaError"):
                 return True
@@ -256,43 +228,38 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.debug("Failed to save cache: %s", err)
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        """Fetch data for all configured vehicles."""
-        tasks = [self._async_build_vehicle_payload(vehicle) for vehicle in self.vehicles]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        """Fetch data for all vehicles: one flat asyncio.gather so each call is independent."""
+        now = datetime.now(tz=UTC).isoformat()
+        new_data: dict[str, dict[str, Any]] = {}
+        flat_tasks: list[tuple[str, str, str, str, Any]] = []
 
-        data: dict[str, dict[str, Any]] = {}
-        for vehicle, result in zip(self.vehicles, results, strict=True):
+        for vehicle in self.vehicles:
             vin = str(vehicle[CONF_VIN]).upper()
-            if isinstance(result, Exception):
-                _LOGGER.warning("Failed to refresh data for %s (%s): %s", vehicle.get(CONF_NAME, vin), vin, result)
-                # Keep previous data if possible; otherwise provide empty fields.
-                previous = (self.data or {}).get(vin, {})
-                data[vin] = {
-                    **vehicle,
-                    **previous,
-                    "vignetteValid": previous.get("vignetteValid"),
-                    "vignetteExpiryDate": previous.get("vignetteExpiryDate"),
-                    "dataStop": previous.get("dataStop"),
-                    "rcaQueryDate": previous.get("rcaQueryDate"),
-                    "rcaIsValid": previous.get("rcaIsValid"),
-                    "rcaValidityStartDate": previous.get("rcaValidityStartDate"),
-                    "rcaValidityEndDate": previous.get("rcaValidityEndDate"),
-                    "vignetteError": previous.get("vignetteError"),
-                    "rcaError": previous.get("rcaError"),
-                    "itpError": previous.get("itpError"),
-                    "itpStatus": previous.get("itpStatus"),
-                    "itpAttempts": previous.get("itpAttempts"),
-                    "itpValidUntilRaw": previous.get("itpValidUntilRaw"),
-                    "itpIsValid": previous.get("itpIsValid"),
-                    "itpLastUpdate": previous.get("itpLastUpdate"),
-                }
-                continue
+            plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
+            vehicle_name = str(vehicle.get(CONF_NAME, vin))
+            new_data[vin] = self._build_vehicle_base_payload(vehicle, vin, plate)
 
-            data[vin] = result
+            if bool(vehicle.get(CONF_VIGNETTE_ENABLED, True)):
+                flat_tasks.append((vin, plate, vehicle_name, "vignette", self._api.async_fetch_vignette(plate_number=plate, vin=vin)))
+            if self._rca_client is not None:
+                flat_tasks.append((vin, plate, vehicle_name, "rca", self._rca_client.async_check(plate=plate)))
+            if self._itp_client is not None:
+                flat_tasks.append((vin, plate, vehicle_name, "itp", self._itp_client.async_check(vin=vin)))
 
-        await self._async_handle_failures_notification(data)
-        await self._async_save_cache(data)
-        return data
+        if flat_tasks:
+            results = await asyncio.gather(*(t[4] for t in flat_tasks), return_exceptions=True)
+            for (vin, plate, vehicle_name, subsystem, _), result in zip(flat_tasks, results, strict=True):
+                vd = new_data[vin]
+                if subsystem == "vignette":
+                    self._apply_vignette_result(vd, result, now=now, vehicle_name=vehicle_name, plate=plate, context="Scheduled")
+                elif subsystem == "rca":
+                    self._apply_rca_result(vd, result, now=now, vehicle_name=vehicle_name, plate=plate, context="Scheduled")
+                elif subsystem == "itp":
+                    self._apply_itp_result(vd, result, now=now, vehicle_name=vehicle_name, vin=vin, context="Scheduled")
+
+        await self._async_handle_failures_notification(new_data)
+        await self._async_save_cache(new_data)
+        return new_data
 
     async def _async_handle_failures_notification(
         self, data: dict[str, dict[str, Any]]
@@ -514,87 +481,6 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.async_set_updated_data(new_data)
         await self._async_handle_failures_notification(new_data)
         await self._async_save_cache(new_data)
-
-    async def _async_build_vehicle_payload(self, vehicle: dict[str, Any]) -> dict[str, Any]:
-        """Build one vehicle payload with live vignette/RCA/ITP data.
-
-        Vignette, RCA and ITP are intentionally independent: if any call fails, we keep
-        the last known values for that subsystem (or None if we have none yet).
-        """
-        vin = str(vehicle[CONF_VIN]).upper()
-        plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
-
-        previous = (self.data or {}).get(vin, {})
-
-        vignette_task = self._api.async_fetch_vignette(plate_number=plate, vin=vin)
-        rca_task = self._rca_client.async_check(plate=plate) if self._rca_client else None
-        itp_task = self._itp_client.async_check(vin=vin) if self._itp_client else None
-
-        results = await asyncio.gather(
-            vignette_task,
-            rca_task if rca_task is not None else asyncio.sleep(0, result=None),
-            itp_task if itp_task is not None else asyncio.sleep(0, result=None),
-            return_exceptions=True,
-        )
-        vignette_result, rca_result, itp_result = results
-
-        now = datetime.now(tz=UTC).isoformat()
-
-        payload: dict[str, Any] = {
-            CONF_NAME: vehicle[CONF_NAME],
-            CONF_MAKE: vehicle[CONF_MAKE],
-            CONF_MODEL: vehicle[CONF_MODEL],
-            CONF_YEAR: vehicle[CONF_YEAR],
-            # Default identifiers from config, can be overwritten by vignette response.
-            CONF_VIN: previous.get(CONF_VIN, vin),
-            CONF_REGISTRATION_NUMBER: previous.get(CONF_REGISTRATION_NUMBER, plate),
-            "vignetteValid": previous.get("vignetteValid"),
-            "vignetteExpiryDate": previous.get("vignetteExpiryDate"),
-            "dataStop": previous.get("dataStop"),
-            "vignetteLastUpdate": previous.get("vignetteLastUpdate"),
-            "vignetteError": previous.get("vignetteError"),
-            "rcaQueryDate": previous.get("rcaQueryDate"),
-            "rcaIsValid": previous.get("rcaIsValid"),
-            "rcaValidityStartDate": previous.get("rcaValidityStartDate"),
-            "rcaValidityEndDate": previous.get("rcaValidityEndDate"),
-            "rcaLastUpdate": previous.get("rcaLastUpdate"),
-            "rcaError": previous.get("rcaError"),
-            "itpStatus": previous.get("itpStatus"),
-            "itpAttempts": previous.get("itpAttempts"),
-            "itpValidUntilRaw": previous.get("itpValidUntilRaw"),
-            "itpIsValid": previous.get("itpIsValid"),
-            "itpLastUpdate": previous.get("itpLastUpdate"),
-            "itpError": previous.get("itpError"),
-            "lastUpdate": previous.get("lastUpdate"),
-        }
-
-        vehicle_name = str(vehicle.get(CONF_NAME, vin))
-        self._apply_vignette_result(
-            payload,
-            vignette_result,
-            now=now,
-            vehicle_name=vehicle_name,
-            plate=plate,
-            context="Scheduled",
-        )
-        self._apply_rca_result(
-            payload,
-            rca_result,
-            now=now,
-            vehicle_name=vehicle_name,
-            plate=plate,
-            context="Scheduled",
-        )
-        self._apply_itp_result(
-            payload,
-            itp_result,
-            now=now,
-            vehicle_name=vehicle_name,
-            vin=vin,
-            context="Scheduled",
-        )
-
-        return payload
 
     @property
     def rca_enabled(self) -> bool:
