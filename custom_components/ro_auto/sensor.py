@@ -138,7 +138,7 @@ class RoAutoVehicleVignetteStatusSensor(RoAutoVehicleBaseSensor):
         super().__init__(coordinator, entry, vehicle)
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_vignette"
         self._attr_name = "vignette"
-        self._attr_icon = "mdi:vehicle-info"
+        self._attr_icon = "mdi:car-info"
         # Display as a known set of values.
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = ["valid", "invalid", "unknown"]
@@ -208,7 +208,7 @@ class RoAutoVehicleRcaStatusSensor(RoAutoVehicleBaseSensor):
         super().__init__(coordinator, entry, vehicle)
         self._attr_unique_id = f"{self._entry_id}_{self._vin}_rca"
         self._attr_name = "rca"
-        self._attr_icon = "mdi:shield-vehicle"
+        self._attr_icon = "mdi:shield-car"
         self._attr_device_class = SensorDeviceClass.ENUM
         self._attr_options = ["valid", "invalid", "unknown"]
 
