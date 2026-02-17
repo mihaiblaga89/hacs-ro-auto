@@ -7,47 +7,26 @@ from datetime import UTC, datetime
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
-from homeassistant.helpers.selector import (
-    BooleanSelector,
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
-    TextSelector,
-    TextSelectorConfig,
-)
+from homeassistant.helpers.selector import (BooleanSelector, NumberSelector,
+                                            NumberSelectorConfig,
+                                            NumberSelectorMode, SelectSelector,
+                                            SelectSelectorConfig,
+                                            SelectSelectorMode, TextSelector,
+                                            TextSelectorConfig)
 
-from .const import (
-    CONF_ACTION,
-    CONF_ADD_ANOTHER,
-    CONF_CARS,
-    CONF_ENABLE_ITP,
-    CONF_ENABLE_RCA,
-    CONF_FLEET_NAME,
-    CONF_ITP_API_URL,
-    CONF_ITP_PASSWORD,
-    CONF_ITP_USERNAME,
-    CONF_MAKE,
-    CONF_MODEL,
-    CONF_RCA_API_URL,
-    CONF_RCA_PASSWORD,
-    CONF_RCA_USERNAME,
-    CONF_REGISTRATION_NUMBER,
-    CONF_VIN,
-    CONF_YEAR,
-    DEFAULT_NAME,
-    DOMAIN,
-)
-from .helpers import get_cars_for_entry
+from .const import (CONF_ACTION, CONF_ADD_ANOTHER, CONF_ENABLE_ITP,
+                    CONF_ENABLE_RCA, CONF_FLEET_NAME, CONF_ITP_API_URL,
+                    CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_MAKE,
+                    CONF_MODEL, CONF_RCA_API_URL, CONF_RCA_PASSWORD,
+                    CONF_RCA_USERNAME, CONF_REGISTRATION_NUMBER, CONF_VEHICLES,
+                    CONF_VIN, CONF_YEAR, DEFAULT_NAME, DOMAIN)
+from .helpers import get_vehicles_for_entry
 
-ACTIONS_ADD_CAR = "add_car"
-ACTIONS_REMOVE_CAR = "remove_car"
+ACTIONS_ADD_VEHICLE = "add_vehicle"
+ACTIONS_REMOVE_VEHICLE = "remove_vehicle"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,8 +36,8 @@ def _year_max() -> int:
     return datetime.now(tz=UTC).year + 1
 
 
-def _car_schema(*, include_add_another: bool) -> vol.Schema:
-    """Create a schema for collecting one car."""
+def _vehicle_schema(*, include_add_another: bool) -> vol.Schema:
+    """Create a schema for collecting one vehicle."""
     schema: dict[vol.Marker, Any] = {
         vol.Required(CONF_NAME): TextSelector(
             TextSelectorConfig(autocomplete="name", type="text")
@@ -102,19 +81,19 @@ def _initial_schema() -> vol.Schema:
         vol.Optional(CONF_ITP_USERNAME): TextSelector(TextSelectorConfig(type="text")),
         vol.Optional(CONF_ITP_PASSWORD): TextSelector(TextSelectorConfig(type="password")),
     }
-    schema.update(_car_schema(include_add_another=True).schema)
+    schema.update(_vehicle_schema(include_add_another=True).schema)
     return vol.Schema(schema)
 
 
-def _normalize_car(car: dict[str, Any]) -> dict[str, Any]:
-    """Normalize one car payload."""
+def _normalize_vehicle(vehicle: dict[str, Any]) -> dict[str, Any]:
+    """Normalize one vehicle payload."""
     normalized = {
-        CONF_NAME: str(car[CONF_NAME]).strip(),
-        CONF_MAKE: str(car[CONF_MAKE]).strip(),
-        CONF_MODEL: str(car[CONF_MODEL]).strip(),
-        CONF_YEAR: int(car[CONF_YEAR]),
-        CONF_VIN: str(car[CONF_VIN]).strip().upper(),
-        CONF_REGISTRATION_NUMBER: str(car[CONF_REGISTRATION_NUMBER]).strip().upper(),
+        CONF_NAME: str(vehicle[CONF_NAME]).strip(),
+        CONF_MAKE: str(vehicle[CONF_MAKE]).strip(),
+        CONF_MODEL: str(vehicle[CONF_MODEL]).strip(),
+        CONF_YEAR: int(vehicle[CONF_YEAR]),
+        CONF_VIN: str(vehicle[CONF_VIN]).strip().upper(),
+        CONF_REGISTRATION_NUMBER: str(vehicle[CONF_REGISTRATION_NUMBER]).strip().upper(),
     }
     return normalized
 
@@ -127,7 +106,7 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize flow."""
-        self._cars: list[dict[str, Any]] = []
+        self._vehicles: list[dict[str, Any]] = []
         self._fleet_name = DEFAULT_NAME
         self._rca_settings: dict[str, Any] = {}
         self._itp_settings: dict[str, Any] = {}
@@ -167,17 +146,17 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_ITP_USERNAME: itp_username,
                     CONF_ITP_PASSWORD: itp_password,
                 }
-            car = _normalize_car(user_input)
-            duplicate_vin = any(existing[CONF_VIN] == car[CONF_VIN] for existing in self._cars)
+            vehicle = _normalize_vehicle(user_input)
+            duplicate_vin = any(existing[CONF_VIN] == vehicle[CONF_VIN] for existing in self._vehicles)
 
             if errors:
                 pass
             elif duplicate_vin:
-                errors["base"] = "duplicate_car"
+                errors["base"] = "duplicate_vehicle"
             else:
-                self._cars.append(car)
+                self._vehicles.append(vehicle)
                 if user_input.get(CONF_ADD_ANOTHER):
-                    return await self.async_step_add_car()
+                    return await self.async_step_add_vehicle()
                 return self._async_create_entry()
 
         return self.async_show_form(
@@ -186,37 +165,37 @@ class RoAutoConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_add_car(
+    async def async_step_add_vehicle(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Handle adding additional cars."""
+        """Handle adding additional vehicles."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            car = _normalize_car(user_input)
-            duplicate_vin = any(existing[CONF_VIN] == car[CONF_VIN] for existing in self._cars)
+            vehicle = _normalize_vehicle(user_input)
+            duplicate_vin = any(existing[CONF_VIN] == vehicle[CONF_VIN] for existing in self._vehicles)
 
             if duplicate_vin:
-                errors["base"] = "duplicate_car"
+                errors["base"] = "duplicate_vehicle"
             else:
-                self._cars.append(car)
+                self._vehicles.append(vehicle)
                 if user_input.get(CONF_ADD_ANOTHER):
-                    return await self.async_step_add_car()
+                    return await self.async_step_add_vehicle()
                 return self._async_create_entry()
 
         return self.async_show_form(
-            step_id="add_car",
-            data_schema=_car_schema(include_add_another=True),
+            step_id="add_vehicle",
+            data_schema=_vehicle_schema(include_add_another=True),
             errors=errors,
         )
 
     def _async_create_entry(self) -> config_entries.ConfigFlowResult:
         """Create the config entry."""
-        title = self._fleet_name or (self._cars[0][CONF_NAME] if self._cars else DEFAULT_NAME)
+        title = self._fleet_name or (self._vehicles[0][CONF_NAME] if self._vehicles else DEFAULT_NAME)
         return self.async_create_entry(
             title=title,
             data={
-                CONF_CARS: self._cars,
+                CONF_VEHICLES: self._vehicles,
                 **self._rca_settings,
                 **self._itp_settings,
             },
@@ -241,11 +220,11 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Manage car actions."""
-        cars = get_cars_for_entry(self._config_entry)
-        menu_options = [ACTIONS_ADD_CAR]
-        if cars:
-            menu_options.append(ACTIONS_REMOVE_CAR)
+        """Manage vehicle actions."""
+        vehicles = get_vehicles_for_entry(self._config_entry)
+        menu_options = [ACTIONS_ADD_VEHICLE]
+        if vehicles:
+            menu_options.append(ACTIONS_REMOVE_VEHICLE)
         menu_options.append("rca_settings")
         menu_options.append("trigger_rca_refresh")
         menu_options.append("itp_settings")
@@ -382,54 +361,54 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
 
         _LOGGER.warning("Unknown manual refresh source: %s", source)
 
-    async def async_step_add_car(
+    async def async_step_add_vehicle(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Add a car from options flow."""
+        """Add a vehicle from options flow."""
         errors: dict[str, str] = {}
-        cars = get_cars_for_entry(self._config_entry)
+        vehicles = get_vehicles_for_entry(self._config_entry)
 
         if user_input is not None:
-            car = _normalize_car(user_input)
-            duplicate_vin = any(existing[CONF_VIN] == car[CONF_VIN] for existing in cars)
+            vehicle = _normalize_vehicle(user_input)
+            duplicate_vin = any(existing[CONF_VIN] == vehicle[CONF_VIN] for existing in vehicles)
             if duplicate_vin:
-                errors["base"] = "duplicate_car"
+                errors["base"] = "duplicate_vehicle"
             else:
-                cars.append(car)
+                vehicles.append(vehicle)
                 return self.async_create_entry(
                     title="",
-                    data={**self._config_entry.options, CONF_CARS: cars},
+                    data={**self._config_entry.options, CONF_VEHICLES: vehicles},
                 )
 
         return self.async_show_form(
-            step_id="add_car",
-            data_schema=_car_schema(include_add_another=False),
+            step_id="add_vehicle",
+            data_schema=_vehicle_schema(include_add_another=False),
             errors=errors,
         )
 
-    async def async_step_remove_car(
+    async def async_step_remove_vehicle(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Remove a car from options flow."""
-        cars = get_cars_for_entry(self._config_entry)
+        """Remove a vehicle from options flow."""
+        vehicles = get_vehicles_for_entry(self._config_entry)
         options = [
             {
-                "value": car[CONF_VIN],
-                "label": f"{car[CONF_NAME]} ({car[CONF_REGISTRATION_NUMBER]})",
+                "value": vehicle[CONF_VIN],
+                "label": f"{vehicle[CONF_NAME]} ({vehicle[CONF_REGISTRATION_NUMBER]})",
             }
-            for car in cars
+            for vehicle in vehicles
         ]
 
         if user_input is not None:
             selected_vin = str(user_input[CONF_ACTION])
-            new_cars = [car for car in cars if car[CONF_VIN] != selected_vin]
+            new_vehicles = [vehicle for vehicle in vehicles if vehicle[CONF_VIN] != selected_vin]
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, CONF_CARS: new_cars},
+                data={**self._config_entry.options, CONF_VEHICLES: new_vehicles},
             )
 
         return self.async_show_form(
-            step_id="remove_car",
+            step_id="remove_vehicle",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_ACTION): SelectSelector(

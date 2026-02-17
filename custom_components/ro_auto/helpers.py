@@ -6,28 +6,20 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 
-from .const import (
-    CONF_CARS,
-    CONF_ENABLE_RCA,
-    CONF_ENABLE_ITP,
-    CONF_ITP_API_URL,
-    CONF_ITP_PASSWORD,
-    CONF_ITP_USERNAME,
-    CONF_RCA_API_URL,
-    CONF_RCA_PASSWORD,
-    CONF_RCA_USERNAME,
-)
+from .const import (CONF_ENABLE_ITP, CONF_ENABLE_RCA, CONF_ITP_API_URL,
+                    CONF_ITP_PASSWORD, CONF_ITP_USERNAME, CONF_RCA_API_URL,
+                    CONF_RCA_PASSWORD, CONF_RCA_USERNAME, CONF_VEHICLES)
 
 
-def get_cars_for_entry(entry: ConfigEntry) -> list[dict[str, Any]]:
-    """Return configured cars, preferring options over data."""
-    options_cars = entry.options.get(CONF_CARS)
-    if isinstance(options_cars, list):
-        return options_cars
+def get_vehicles_for_entry(entry: ConfigEntry) -> list[dict[str, Any]]:
+    """Return configured vehicles, preferring options over data."""
+    options_vehicles = entry.options.get(CONF_VEHICLES)
+    if isinstance(options_vehicles, list):
+        return options_vehicles
 
-    data_cars = entry.data.get(CONF_CARS)
-    if isinstance(data_cars, list):
-        return data_cars
+    data_vehicles = entry.data.get(CONF_VEHICLES)
+    if isinstance(data_vehicles, list):
+        return data_vehicles
 
     return []
 

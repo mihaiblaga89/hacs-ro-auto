@@ -2,9 +2,9 @@
 
 **Important: Since only the vignette has a non-captcha API, only that one works out of the box. ITP and RCA need to be enabled separately but you will need to create and host a separate API that will parse the info from RAROM and BAAR**
 
-`RO Auto` is a HACS custom integration that lets you track Romanian vignette status for one or multiple cars.
+`RO Auto` is a HACS custom integration that lets you track Romanian vignette status for one or multiple vehicles.
 
-Each configured car creates one sensor entity in Home Assistant. The sensor exposes:
+Each configured vehicle creates one sensor entity in Home Assistant. The sensor exposes:
 
 - `name`
 - `make`
@@ -21,9 +21,9 @@ The integration fetches vignette data from:
 
 ## Features
 
-- Config Flow UI with support for adding one or multiple cars during setup
-- Options Flow UI to add or remove cars later
-- One sensor per car with full metadata as attributes
+- Config Flow UI with support for adding one or multiple vehicles during setup
+- Options Flow UI to add or remove vehicles later
+- One sensor per vehicle with full metadata as attributes
 - Async polling with `DataUpdateCoordinator`
 
 ## Installation (HACS)
@@ -40,10 +40,10 @@ The integration fetches vignette data from:
 When adding the integration:
 
 1. Set an optional fleet name.
-2. Add the first car details.
-3. Enable **Add another car** to keep adding cars in the same flow.
+2. Add the first vehicle details.
+3. Enable **Add another vehicle** to keep adding vehicles in the same flow.
 
-Required car fields:
+Required vehicle fields:
 
 - `name`
 - `make`
@@ -56,4 +56,4 @@ Required car fields:
 
 - VIN and registration number are normalized to uppercase before requests.
 - Sensor state is one of `valid`, `invalid`, or `unknown`.
-- All requested car details and vignette fields are exposed as sensor attributes.
+- All requested vehicle details and vignette fields are exposed as sensor attributes.

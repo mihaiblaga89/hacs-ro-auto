@@ -21,8 +21,8 @@ from .const import (CONF_ENABLE_ITP, CONF_ENABLE_RCA, CONF_ITP_API_URL,
                     CONF_MODEL, CONF_RCA_API_URL, CONF_RCA_PASSWORD,
                     CONF_RCA_USERNAME, CONF_REGISTRATION_NUMBER, CONF_VIN,
                     CONF_YEAR, DOMAIN)
-from .helpers import (get_cars_for_entry, get_itp_settings_for_entry,
-                      get_rca_settings_for_entry)
+from .helpers import (get_itp_settings_for_entry, get_rca_settings_for_entry,
+                      get_vehicles_for_entry)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,13 +34,13 @@ NOTIFICATION_ID_PREFIX = f"{DOMAIN}_api_errors"
 
 
 class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
-    """Coordinator that fetches all configured cars."""
+    """Coordinator that fetches all configured vehicles."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize coordinator."""
         self.config_entry = entry
         self._store: Store[dict[str, Any]] = Store(hass, CACHE_STORAGE_VERSION, CACHE_STORAGE_KEY)
-        self.cars = get_cars_for_entry(entry)
+        self.vehicles = get_vehicles_for_entry(entry)
         self._api = ErovinietaApiClient(async_get_clientsession(hass))
         self._rca_settings = get_rca_settings_for_entry(entry)
         self._rca_client: RcaApiClient | None = None
@@ -118,6 +118,100 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         self.async_set_updated_data(cached_data)
         return True
 
+    async def async_prime_missing_data(self) -> bool:
+        """Fetch missing data only (per vehicle + per subsystem).
+
+        This is used on startup/reload and after adding vehicles. It keeps the integration
+        "smart" by only calling the APIs for vehicles/subsystems that are still unknown.
+
+        Returns True if any API call was attempted.
+        """
+        attempted_any = False
+        now = datetime.now(tz=UTC).isoformat()
+
+        new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
+
+        for vehicle in self.vehicles:
+            vin = str(vehicle[CONF_VIN]).upper()
+            plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
+            vehicle_name = str(vehicle.get(CONF_NAME, vin))
+
+            vehicle_data = {**new_data.get(vin, {})}
+
+            # Ensure at least the vehicle metadata exists in the payload.
+            vehicle_data.setdefault(CONF_NAME, vehicle.get(CONF_NAME))
+            vehicle_data.setdefault(CONF_MAKE, vehicle.get(CONF_MAKE))
+            vehicle_data.setdefault(CONF_MODEL, vehicle.get(CONF_MODEL))
+            vehicle_data.setdefault(CONF_YEAR, vehicle.get(CONF_YEAR))
+            vehicle_data.setdefault(CONF_VIN, vin)
+            vehicle_data.setdefault(CONF_REGISTRATION_NUMBER, plate)
+
+            tasks: list[tuple[str, Any]] = []
+
+            # Vignette missing?
+            if vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
+                tasks.append(
+                    (
+                        "vignette",
+                        self._api.async_fetch_vignette(plate_number=plate, vin=vin),
+                    )
+                )
+
+            # RCA missing?
+            if self._rca_client is not None:
+                if vehicle_data.get("rcaIsValid") is None and not vehicle_data.get("rcaError"):
+                    tasks.append(("rca", self._rca_client.async_check(plate=plate)))
+
+            # ITP missing?
+            if self._itp_client is not None:
+                if vehicle_data.get("itpIsValid") is None and not vehicle_data.get("itpError"):
+                    tasks.append(("itp", self._itp_client.async_check(vin=vin)))
+
+            if not tasks:
+                new_data[vin] = vehicle_data
+                continue
+
+            attempted_any = True
+            results = await asyncio.gather(
+                *(task for _, task in tasks),
+                return_exceptions=True,
+            )
+            result_map = dict(zip((key for key, _ in tasks), results, strict=True))
+
+            self._apply_vignette_result(
+                vehicle_data,
+                result_map.get("vignette"),
+                now=now,
+                vehicle_name=vehicle_name,
+                plate=plate,
+                context="Startup",
+            )
+            self._apply_rca_result(
+                vehicle_data,
+                result_map.get("rca"),
+                now=now,
+                vehicle_name=vehicle_name,
+                plate=plate,
+                context="Startup",
+            )
+            self._apply_itp_result(
+                vehicle_data,
+                result_map.get("itp"),
+                now=now,
+                vehicle_name=vehicle_name,
+                vin=vin,
+                context="Startup",
+            )
+
+            new_data[vin] = vehicle_data
+
+        if attempted_any:
+            self.async_set_updated_data(new_data)
+            await self._async_handle_failures_notification(new_data)
+            await self._async_save_cache(new_data)
+
+        return attempted_any
+
     def cache_needs_initial_refresh(self) -> bool:
         """Return True if enabled subsystems have no data yet.
 
@@ -126,26 +220,18 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         if not isinstance(self.data, dict) or not self.data:
             return True
 
-        for car in self.cars:
-            vin = str(car[CONF_VIN]).upper()
-            car_data = self.data.get(vin, {})
-            if not isinstance(car_data, dict):
+        for vehicle in self.vehicles:
+            vin = str(vehicle[CONF_VIN]).upper()
+            vehicle_data = self.data.get(vin, {})
+            if not isinstance(vehicle_data, dict):
                 return True
 
-            # Treat "unknown" sensor values as needing an initial refresh.
-            # (Unknown is represented by None + no error recorded.)
-            if car_data.get("vignetteValid") is None and not car_data.get("vignetteError"):
+            if vehicle_data.get("vignetteValid") is None and not vehicle_data.get("vignetteError"):
                 return True
-
-            # If RCA is enabled, refresh until we have either data or an error recorded.
-            if self._rca_client is not None:
-                if car_data.get("rcaIsValid") is None and not car_data.get("rcaError"):
-                    return True
-
-            # If ITP is enabled, refresh until we have either data or an error recorded.
-            if self._itp_client is not None:
-                if car_data.get("itpIsValid") is None and not car_data.get("itpError"):
-                    return True
+            if self._rca_client is not None and vehicle_data.get("rcaIsValid") is None and not vehicle_data.get("rcaError"):
+                return True
+            if self._itp_client is not None and vehicle_data.get("itpIsValid") is None and not vehicle_data.get("itpError"):
+                return True
 
         return False
 
@@ -170,19 +256,19 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.debug("Failed to save cache: %s", err)
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        """Fetch data for all configured cars."""
-        tasks = [self._async_build_car_payload(car) for car in self.cars]
+        """Fetch data for all configured vehicles."""
+        tasks = [self._async_build_vehicle_payload(vehicle) for vehicle in self.vehicles]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         data: dict[str, dict[str, Any]] = {}
-        for car, result in zip(self.cars, results, strict=True):
-            vin = str(car[CONF_VIN]).upper()
+        for vehicle, result in zip(self.vehicles, results, strict=True):
+            vin = str(vehicle[CONF_VIN]).upper()
             if isinstance(result, Exception):
-                _LOGGER.warning("Failed to refresh data for %s (%s): %s", car.get(CONF_NAME, vin), vin, result)
+                _LOGGER.warning("Failed to refresh data for %s (%s): %s", vehicle.get(CONF_NAME, vin), vin, result)
                 # Keep previous data if possible; otherwise provide empty fields.
                 previous = (self.data or {}).get(vin, {})
                 data[vin] = {
-                    **car,
+                    **vehicle,
                     **previous,
                     "vignetteValid": previous.get("vignetteValid"),
                     "vignetteExpiryDate": previous.get("vignetteExpiryDate"),
@@ -213,18 +299,18 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     ) -> None:
         """Create/update a persistent notification when API calls fail."""
         errors: list[str] = []
-        for vin, car_data in data.items():
-            vignette_error = car_data.get("vignetteError")
+        for vin, vehicle_data in data.items():
+            vignette_error = vehicle_data.get("vignetteError")
             if vignette_error:
                 errors.append(f"- {vin}: vignette error: {vignette_error}")
 
             if self._rca_client is not None:
-                rca_error = car_data.get("rcaError")
+                rca_error = vehicle_data.get("rcaError")
                 if rca_error:
                     errors.append(f"- {vin}: RCA error: {rca_error}")
 
             if self._itp_client is not None:
-                itp_error = car_data.get("itpError")
+                itp_error = vehicle_data.get("itpError")
                 if itp_error:
                     errors.append(f"- {vin}: ITP error: {itp_error}")
 
@@ -248,15 +334,15 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
     def _apply_vignette_result(
         self,
-        car_data: dict[str, Any],
+        vehicle_data: dict[str, Any],
         result: Any,
         *,
         now: str,
-        car_name: str,
+        vehicle_name: str,
         plate: str,
         context: str,
     ) -> None:
-        """Apply vignette result to a car payload."""
+        """Apply vignette result to a vehicle payload."""
         if result is None:
             return
 
@@ -264,14 +350,14 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.warning(
                 "%s vignette refresh failed for %s (%s)",
                 context,
-                car_name,
+                vehicle_name,
                 plate,
                 exc_info=result,
             )
-            car_data["vignetteError"] = str(result)
+            vehicle_data["vignetteError"] = str(result)
             return
 
-        car_data.update(
+        vehicle_data.update(
             {
                 "vignetteValid": result.get("vignetteValid"),
                 "vignetteExpiryDate": result.get("vignetteExpiryDate"),
@@ -284,15 +370,15 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
     def _apply_rca_result(
         self,
-        car_data: dict[str, Any],
+        vehicle_data: dict[str, Any],
         result: Any,
         *,
         now: str,
-        car_name: str,
+        vehicle_name: str,
         plate: str,
         context: str,
     ) -> None:
-        """Apply RCA result to a car payload."""
+        """Apply RCA result to a vehicle payload."""
         if result is None:
             return
 
@@ -300,14 +386,14 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.warning(
                 "%s RCA refresh failed for %s (%s)",
                 context,
-                car_name,
+                vehicle_name,
                 plate,
                 exc_info=result,
             )
-            car_data["rcaError"] = str(result)
+            vehicle_data["rcaError"] = str(result)
             return
 
-        car_data.update(
+        vehicle_data.update(
             {
                 "rcaQueryDate": result.get("query_date"),
                 "rcaIsValid": result.get("is_valid"),
@@ -321,15 +407,15 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
     def _apply_itp_result(
         self,
-        car_data: dict[str, Any],
+        vehicle_data: dict[str, Any],
         result: Any,
         *,
         now: str,
-        car_name: str,
+        vehicle_name: str,
         vin: str,
         context: str,
     ) -> None:
-        """Apply ITP result to a car payload."""
+        """Apply ITP result to a vehicle payload."""
         if result is None:
             return
 
@@ -337,17 +423,17 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             _LOGGER.warning(
                 "%s ITP refresh failed for %s (%s)",
                 context,
-                car_name,
+                vehicle_name,
                 vin,
                 exc_info=result,
             )
-            car_data["itpError"] = str(result)
+            vehicle_data["itpError"] = str(result)
             return
 
         status = result.get("status")
         valid_until_raw = result.get("itp_valid_until_raw")
         is_valid = bool(status == "ok" and valid_until_raw)
-        car_data.update(
+        vehicle_data.update(
             {
                 "itpStatus": status,
                 "itpAttempts": result.get("attempts"),
@@ -368,28 +454,28 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         now = datetime.now(tz=UTC).isoformat()
         tasks: list[asyncio.Future[Any] | asyncio.Task[Any]] = []
-        cars: list[tuple[str, str, str]] = []
-        for car in self.cars:
-            vin = str(car[CONF_VIN]).upper()
-            plate = str(car[CONF_REGISTRATION_NUMBER]).upper()
-            car_name = str(car.get(CONF_NAME, vin))
-            cars.append((vin, plate, car_name))
+        vehicles: list[tuple[str, str, str]] = []
+        for vehicle in self.vehicles:
+            vin = str(vehicle[CONF_VIN]).upper()
+            plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
+            vehicle_name = str(vehicle.get(CONF_NAME, vin))
+            vehicles.append((vin, plate, vehicle_name))
             tasks.append(asyncio.create_task(self._rca_client.async_check(plate=plate)))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
-        for (vin, plate, car_name), result in zip(cars, results, strict=True):
-            car_data = {**new_data.get(vin, {})}
+        for (vin, plate, vehicle_name), result in zip(vehicles, results, strict=True):
+            vehicle_data = {**new_data.get(vin, {})}
             self._apply_rca_result(
-                car_data,
+                vehicle_data,
                 result,
                 now=now,
-                car_name=car_name,
+                vehicle_name=vehicle_name,
                 plate=plate,
                 context="Manual",
             )
-            new_data[vin] = car_data
+            new_data[vin] = vehicle_data
 
         self.async_set_updated_data(new_data)
         await self._async_handle_failures_notification(new_data)
@@ -403,40 +489,40 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
 
         now = datetime.now(tz=UTC).isoformat()
         tasks: list[asyncio.Future[Any] | asyncio.Task[Any]] = []
-        cars: list[tuple[str, str]] = []
-        for car in self.cars:
-            vin = str(car[CONF_VIN]).upper()
-            car_name = str(car.get(CONF_NAME, vin))
-            cars.append((vin, car_name))
+        vehicles: list[tuple[str, str]] = []
+        for vehicle in self.vehicles:
+            vin = str(vehicle[CONF_VIN]).upper()
+            vehicle_name = str(vehicle.get(CONF_NAME, vin))
+            vehicles.append((vin, vehicle_name))
             tasks.append(asyncio.create_task(self._itp_client.async_check(vin=vin)))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         new_data: dict[str, dict[str, Any]] = {**(self.data or {})}
-        for (vin, car_name), result in zip(cars, results, strict=True):
-            car_data = {**new_data.get(vin, {})}
+        for (vin, vehicle_name), result in zip(vehicles, results, strict=True):
+            vehicle_data = {**new_data.get(vin, {})}
             self._apply_itp_result(
-                car_data,
+                vehicle_data,
                 result,
                 now=now,
-                car_name=car_name,
+                vehicle_name=vehicle_name,
                 vin=vin,
                 context="Manual",
             )
-            new_data[vin] = car_data
+            new_data[vin] = vehicle_data
 
         self.async_set_updated_data(new_data)
         await self._async_handle_failures_notification(new_data)
         await self._async_save_cache(new_data)
 
-    async def _async_build_car_payload(self, car: dict[str, Any]) -> dict[str, Any]:
-        """Build one car payload with live vignette/RCA/ITP data.
+    async def _async_build_vehicle_payload(self, vehicle: dict[str, Any]) -> dict[str, Any]:
+        """Build one vehicle payload with live vignette/RCA/ITP data.
 
         Vignette, RCA and ITP are intentionally independent: if any call fails, we keep
         the last known values for that subsystem (or None if we have none yet).
         """
-        vin = str(car[CONF_VIN]).upper()
-        plate = str(car[CONF_REGISTRATION_NUMBER]).upper()
+        vin = str(vehicle[CONF_VIN]).upper()
+        plate = str(vehicle[CONF_REGISTRATION_NUMBER]).upper()
 
         previous = (self.data or {}).get(vin, {})
 
@@ -455,10 +541,10 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         now = datetime.now(tz=UTC).isoformat()
 
         payload: dict[str, Any] = {
-            CONF_NAME: car[CONF_NAME],
-            CONF_MAKE: car[CONF_MAKE],
-            CONF_MODEL: car[CONF_MODEL],
-            CONF_YEAR: car[CONF_YEAR],
+            CONF_NAME: vehicle[CONF_NAME],
+            CONF_MAKE: vehicle[CONF_MAKE],
+            CONF_MODEL: vehicle[CONF_MODEL],
+            CONF_YEAR: vehicle[CONF_YEAR],
             # Default identifiers from config, can be overwritten by vignette response.
             CONF_VIN: previous.get(CONF_VIN, vin),
             CONF_REGISTRATION_NUMBER: previous.get(CONF_REGISTRATION_NUMBER, plate),
@@ -482,12 +568,12 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             "lastUpdate": previous.get("lastUpdate"),
         }
 
-        car_name = str(car.get(CONF_NAME, vin))
+        vehicle_name = str(vehicle.get(CONF_NAME, vin))
         self._apply_vignette_result(
             payload,
             vignette_result,
             now=now,
-            car_name=car_name,
+            vehicle_name=vehicle_name,
             plate=plate,
             context="Scheduled",
         )
@@ -495,7 +581,7 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             payload,
             rca_result,
             now=now,
-            car_name=car_name,
+            vehicle_name=vehicle_name,
             plate=plate,
             context="Scheduled",
         )
@@ -503,7 +589,7 @@ class RoAutoCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
             payload,
             itp_result,
             now=now,
-            car_name=car_name,
+            vehicle_name=vehicle_name,
             vin=vin,
             context="Scheduled",
         )

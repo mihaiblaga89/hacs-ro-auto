@@ -21,8 +21,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up RO Auto from a config entry."""
     coordinator = RoAutoCoordinator(hass, entry)
-    cache_loaded = await coordinator.async_load_cache()
-    if not cache_loaded or coordinator.cache_needs_initial_refresh():
+    await coordinator.async_load_cache()
+    await coordinator.async_prime_missing_data()
+    if coordinator.cache_needs_initial_refresh():
+        # Fallback: ensure we never leave entities unknown at startup.
         await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})

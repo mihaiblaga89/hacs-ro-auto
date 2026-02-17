@@ -54,7 +54,7 @@ class ErovinietaApiClient:
         plate_number: str,
         vin: str,
     ) -> dict[str, Any]:
-        """Fetch vignette details for one car."""
+        """Fetch vignette details for one vehicle."""
         cache_buster = f"{int(datetime.now(tz=UTC).timestamp() * 1000)}-{uuid4().hex}"
         params = {
             "plateNumber": plate_number.strip().upper(),

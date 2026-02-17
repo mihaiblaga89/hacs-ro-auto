@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Add RO Auto fleet",
-        "description": "Add the first car and optionally continue with more.",
+        "description": "Add the first vehicle and optionally continue with more.",
         "data": {
           "fleet_name": "Fleet name",
           "enable_rca": "Enable RCA checks",
@@ -21,11 +21,11 @@
           "year": "Year",
           "vin": "VIN",
           "registrationNumber": "Registration number",
-          "add_another": "Add another car"
+          "add_another": "Add another vehicle"
         }
       },
-      "add_car": {
-        "title": "Add another car",
+      "add_vehicle": {
+        "title": "Add another vehicle",
         "data": {
           "name": "Vehicle name",
           "make": "Make",
@@ -33,12 +33,12 @@
           "year": "Year",
           "vin": "VIN",
           "registrationNumber": "Registration number",
-          "add_another": "Add another car"
+          "add_another": "Add another vehicle"
         }
       }
     },
     "error": {
-      "duplicate_car": "This VIN already exists in the fleet.",
+      "duplicate_vehicle": "This VIN already exists in the fleet.",
       "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password.",
       "missing_itp_settings": "To enable ITP checks, you must provide the ITP API URL, username, and password."
     }
@@ -46,10 +46,10 @@
   "options": {
     "step": {
       "init": {
-        "title": "Manage cars",
+        "title": "Manage vehicles",
         "menu_options": {
-          "add_car": "Add a car",
-          "remove_car": "Remove a car",
+          "add_vehicle": "Add a vehicle",
+          "remove_vehicle": "Remove a vehicle",
           "rca_settings": "RCA settings",
           "itp_settings": "ITP settings",
           "trigger_rca_refresh": "Trigger RCA API call now",
@@ -74,8 +74,8 @@
           "itp_password": "ITP API password"
         }
       },
-      "add_car": {
-        "title": "Add car",
+      "add_vehicle": {
+        "title": "Add vehicle",
         "data": {
           "name": "Vehicle name",
           "make": "Make",
@@ -85,15 +85,15 @@
           "registrationNumber": "Registration number"
         }
       },
-      "remove_car": {
-        "title": "Remove car",
+      "remove_vehicle": {
+        "title": "Remove vehicle",
         "data": {
-          "action": "Car"
+          "action": "vehicle"
         }
       }
     },
     "error": {
-      "duplicate_car": "This VIN already exists in the fleet.",
+      "duplicate_vehicle": "This VIN already exists in the fleet.",
       "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password.",
       "missing_itp_settings": "To enable ITP checks, you must provide the ITP API URL, username, and password."
     }
