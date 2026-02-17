@@ -96,6 +96,10 @@
       "duplicate_vehicle": "This VIN already exists in the fleet.",
       "missing_rca_settings": "To enable RCA checks, you must provide the RCA API URL, username, and password.",
       "missing_itp_settings": "To enable ITP checks, you must provide the ITP API URL, username, and password."
+    },
+    "abort": {
+      "manual_rca_refresh_triggered": "RCA API call triggered.",
+      "manual_itp_refresh_triggered": "ITP API call triggered."
     }
   }
 }

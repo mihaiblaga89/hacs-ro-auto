@@ -336,14 +336,14 @@ class RoAutoOptionsFlow(config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         """Trigger a manual RCA refresh from options menu."""
         await self._async_trigger_manual_refresh(source="RCA")
-        return self.async_create_entry(title="", data={**self._config_entry.options})
+        return self.async_abort(reason="manual_rca_refresh_triggered")
 
     async def async_step_trigger_itp_refresh(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Trigger a manual ITP refresh from options menu."""
         await self._async_trigger_manual_refresh(source="ITP")
-        return self.async_create_entry(title="", data={**self._config_entry.options})
+        return self.async_abort(reason="manual_itp_refresh_triggered")
 
     async def _async_trigger_manual_refresh(self, *, source: str) -> None:
         """Trigger a manual refresh for the existing coordinator."""
