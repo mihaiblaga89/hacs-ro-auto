@@ -88,7 +88,7 @@
       },
       "vehicle_settings": {
         "title": "Vignette check per vehicle",
-        "description": "Enable or disable vignette (Rovinieta) checks for each vehicle. Checked = enabled. Uncheck to skip vignette API calls for that vehicle."
+        "description": "Enable or disable vignette (Rovinieta) checks for each vehicle. Checked = enabled. Uncheck to skip vignette API calls for that vehicle (for example for motorcycles)."
       },
       "remove_vehicle": {
         "title": "Remove vehicle",
