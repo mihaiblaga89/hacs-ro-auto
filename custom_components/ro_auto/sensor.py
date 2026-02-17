@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import \
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (CONF_MAKE, CONF_MODEL, CONF_REGISTRATION_NUMBER, CONF_VIN,
-                    CONF_YEAR, DOMAIN)
+                    CONF_VIGNETTE_ENABLED, CONF_YEAR, DOMAIN)
 from .coordinator import RoAutoCoordinator
 
 
@@ -62,11 +62,25 @@ async def async_setup_entry(
     """Set up RO Auto sensors from a config entry."""
     coordinator: RoAutoCoordinator = hass.data[DOMAIN][entry.entry_id]
 
+    vins_vignette_disabled = {
+        str(v[CONF_VIN]).upper()
+        for v in coordinator.vehicles
+        if not v.get(CONF_VIGNETTE_ENABLED, True)
+    }
+    prefix = f"{entry.entry_id}_"
     registry = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity_entry.platform != DOMAIN:
             continue
         unique_id = entity_entry.unique_id or ""
+        if unique_id.startswith(prefix) and unique_id.endswith("_vignette_expiry_date"):
+            vin = unique_id[len(prefix) : -len("_vignette_expiry_date")]
+            if vin.upper() in vins_vignette_disabled:
+                registry.async_remove(entity_entry.entity_id)
+        elif unique_id.startswith(prefix) and unique_id.endswith("_vignette"):
+            vin = unique_id[len(prefix) : -len("_vignette")]
+            if vin.upper() in vins_vignette_disabled:
+                registry.async_remove(entity_entry.entity_id)
         if not coordinator.rca_enabled and (
             unique_id.endswith("_rca") or unique_id.endswith("_rca_expiry_date")
         ):
@@ -78,8 +92,9 @@ async def async_setup_entry(
 
     entities: list[SensorEntity] = []
     for vehicle in coordinator.vehicles:
-        entities.append(RoAutoVehicleVignetteStatusSensor(coordinator, entry, vehicle))
-        entities.append(RoAutoVehicleVignetteExpirySensor(coordinator, entry, vehicle))
+        if vehicle.get(CONF_VIGNETTE_ENABLED, True):
+            entities.append(RoAutoVehicleVignetteStatusSensor(coordinator, entry, vehicle))
+            entities.append(RoAutoVehicleVignetteExpirySensor(coordinator, entry, vehicle))
         if coordinator.rca_enabled:
             entities.append(RoAutoVehicleRcaStatusSensor(coordinator, entry, vehicle))
             entities.append(RoAutoVehicleRcaExpirySensor(coordinator, entry, vehicle))
